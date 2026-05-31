@@ -1,0 +1,267 @@
+---
+title: "Exploring Carbon-Intensive Growth in the Indo-Pacific"
+subtitle: "DATA1001 Project 2 — Part 1 (Exploratory Data Analysis)"
+author: "Anonymous Student"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    code-tools: true
+    theme: cosmo
+    fig-width: 8
+    fig-height: 5
+execute:
+  warning: false
+  message: false
+  echo: true
+crossref:
+  fig-title: "Figure"
+  fig-prefix: "Figure"
+---
+
+```{r setup}
+library(tidyverse)
+library(readr)
+library(scales)
+
+data_candidates <- c("../data/owid-co2-data.csv", "../Data/owid-co2-data.csv")
+co2_path <- data_candidates[file.exists(data_candidates)][1]
+
+if (is.na(co2_path)) {
+  stop("Could not find owid-co2-data.csv in ../data or ../Data.")
+}
+
+co2_raw <- read_csv(co2_path, show_col_types = FALSE)
+
+focus_countries <- c(
+  "Australia", "Indonesia", "Vietnam", "India", "Philippines",
+  "China", "Japan", "South Korea", "United States"
+)
+
+# Country-level panel with derived variables (OWID aggregates removed).
+co2_countries <- co2_raw |>
+  filter(!is.na(iso_code), !str_starts(iso_code, "OWID")) |>
+  mutate(
+    gdp_per_capita   = if_else(population > 0, gdp / population, NA_real_),
+    carbon_intensity = if_else(gdp > 0, co2 / gdp, NA_real_),
+    coal_share       = if_else(co2 > 0, coal_co2   / co2, NA_real_),
+    oil_share        = if_else(co2 > 0, oil_co2    / co2, NA_real_),
+    gas_share        = if_else(co2 > 0, gas_co2    / co2, NA_real_),
+    cement_share     = if_else(co2 > 0, cement_co2 / co2, NA_real_)
+  )
+
+# Latest year with complete GDP / CO2 / population coverage.
+latest_cs_year <- co2_countries |>
+  filter(!is.na(gdp), !is.na(co2), !is.na(population)) |>
+  summarise(y = max(year, na.rm = TRUE)) |>
+  pull(y)
+```
+
+# Visualisations
+
+Three figures, each looking at carbon-intensive growth through a different lens — income, time, and fuel mix.
+
+::: {.panel-tabset}
+
+## Fig 1 · Income
+
+```{r}
+#| label: fig-co2-vs-gdp
+#| fig-cap: "Per-capita CO2 emissions against GDP per capita in the latest complete year. Selected Indo-Pacific focus economies are shown in red; high-emission outliers (small oil- or gas-rich economies) are labelled in italic purple; all other countries are in light grey."
+#| fig-alt: "Scatter plot of CO2 per capita against GDP per capita across countries in the latest complete year, with selected Indo-Pacific countries and high-emission outliers labelled."
+# Additional outliers to label (oil / gas rich economies that otherwise
+# appear as unlabelled grey points in the top of the chart).
+outlier_countries <- c("Qatar", "United Arab Emirates", "Saudi Arabia",
+                       "Kuwait", "Canada")
+
+viz1_data <- co2_countries |>
+  filter(year == latest_cs_year,
+         !is.na(gdp_per_capita), !is.na(co2_per_capita), !is.na(co2)) |>
+  mutate(
+    label_group = case_when(
+      country %in% focus_countries   ~ "focus",
+      country %in% outlier_countries ~ "outlier",
+      TRUE                           ~ "other"
+    )
+  )
+
+ggplot(viz1_data, aes(x = gdp_per_capita, y = co2_per_capita)) +
+  geom_point(aes(size = co2, colour = label_group, alpha = label_group)) +
+  geom_text(data = filter(viz1_data, label_group == "focus"),
+            aes(label = country),
+            vjust = -0.9, size = 3.2, colour = "grey15",
+            check_overlap = TRUE) +
+  geom_text(data = filter(viz1_data, label_group == "outlier"),
+            aes(label = country),
+            vjust = -0.9, size = 3.0, colour = "#6c3483",
+            fontface = "italic", check_overlap = TRUE) +
+  scale_x_log10(labels = label_dollar(scale_cut = cut_short_scale())) +
+  scale_size_continuous(
+    range  = c(1, 10),
+    breaks = c(500, 3000, 6000, 9000),
+    labels = function(x) paste0(comma(x), " Mt"),
+    name   = "Total CO2 (Mt)"
+  ) +
+  scale_colour_manual(
+    values = c(focus = "#c0392b", outlier = "#6c3483", other = "grey70"),
+    guide  = "none"
+  ) +
+  scale_alpha_manual(
+    values = c(focus = 0.95, outlier = 0.85, other = 0.35),
+    guide  = "none"
+  ) +
+  labs(
+    title    = "Per-capita CO2 emissions vary widely at similar income levels",
+    subtitle = paste0("Country-level observations, ", latest_cs_year,
+                      "; focus economies in red, high-emission outliers in purple"),
+    x        = "GDP per capita (log scale, US$)",
+    y        = "CO2 emissions per capita (tonnes)",
+    caption  = paste0(
+      "Source: Our World in Data CO2 dataset (owid-co2-data.csv). ",
+      "Unlabelled grey points include small oil- or gas-rich economies ",
+      "with very high per-capita emissions."
+    )
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title    = element_text(face = "bold"),
+    plot.subtitle = element_text(colour = "grey30"),
+    plot.caption  = element_text(colour = "grey40", size = 8, hjust = 0),
+    panel.grid.minor = element_blank()
+  )
+```
+
+## Fig 2 · Carbon intensity
+
+```{r}
+#| label: fig-carbon-intensity
+#| fig-cap: "Carbon intensity (tonnes of CO2 per million US dollars of GDP) for seven Indo-Pacific economies, 1990 to the latest complete year. End-of-line country labels make the final positions easy to compare."
+#| fig-alt: "Line chart showing carbon intensity (tonnes of CO2 per million US dollars of GDP) from 1990 to the latest year for seven Indo-Pacific countries."
+trend_countries <- c("Australia", "China", "India", "Indonesia",
+                     "Japan", "South Korea", "Vietnam")
+
+# Convert CO2 (Mt) / GDP (USD) into tonnes per million US$ of GDP to avoid
+# scientific notation on the axis.  Multiplier = 1e12.
+viz2_data <- co2_countries |>
+  filter(country %in% trend_countries,
+         year >= 1990, year <= latest_cs_year,
+         !is.na(carbon_intensity)) |>
+  mutate(ci_t_per_musd = carbon_intensity * 1e12)
+
+end_labels <- viz2_data |>
+  group_by(country) |>
+  filter(year == max(year)) |>
+  ungroup()
+
+ggplot(viz2_data, aes(x = year, y = ci_t_per_musd,
+                      colour = country, group = country)) +
+  geom_line(linewidth = 0.9) +
+  geom_point(data = end_labels, size = 1.8) +
+  geom_text(data = end_labels,
+            aes(label = country),
+            hjust = -0.1, vjust = 0.4, size = 3, show.legend = FALSE) +
+  scale_colour_brewer(palette = "Dark2", name = "Country") +
+  scale_x_continuous(breaks = seq(1990, latest_cs_year, 5),
+                     limits = c(1990, latest_cs_year + 4)) +
+  scale_y_continuous(labels = label_comma(accuracy = 1)) +
+  labs(
+    title    = "Carbon intensity has declined unevenly across Indo-Pacific economies",
+    subtitle = paste0("Tonnes of CO2 per million US$ of GDP, 1990\u2013",
+                      latest_cs_year),
+    x        = "Year",
+    y        = "Tonnes of CO2 per million US$ of GDP",
+    caption  = "Source: Our World in Data CO2 dataset (owid-co2-data.csv)."
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title       = element_text(face = "bold"),
+    plot.subtitle    = element_text(colour = "grey30"),
+    plot.caption     = element_text(colour = "grey40", size = 8, hjust = 0),
+    panel.grid.minor = element_blank(),
+    legend.position  = "right"
+  )
+```
+
+## Fig 3 · Fuel mix
+
+```{r}
+#| label: fig-fuel-mix
+#| fig-cap: "Share of coal, oil, gas and cement in total fossil + cement CO2 emissions for the nine focus economies in the latest complete year. Countries are ordered so that the highest coal share appears at the top."
+#| fig-alt: "Horizontal 100 percent stacked bar chart showing the share of coal, oil, gas and cement in total CO2 emissions for selected Indo-Pacific countries in the latest complete year, ordered from highest to lowest coal share."
+viz3_wide <- co2_countries |>
+  filter(country %in% focus_countries, year == latest_cs_year) |>
+  transmute(country,
+            Coal   = coal_share,
+            Oil    = oil_share,
+            Gas    = gas_share,
+            Cement = cement_share)
+
+# Order countries so the country with the highest coal share appears at the top.
+country_order <- viz3_wide |>
+  arrange(Coal) |>           # ascending -> after coord_flip, highest at top
+  pull(country)
+
+viz3_data <- viz3_wide |>
+  pivot_longer(-country, names_to = "source", values_to = "share") |>
+  filter(!is.na(share)) |>
+  mutate(
+    source  = factor(source, levels = c("Coal", "Oil", "Gas", "Cement")),
+    country = factor(country, levels = country_order)
+  )
+
+ggplot(viz3_data, aes(x = country, y = share, fill = source)) +
+  geom_col(width = 0.75) +
+  coord_flip() +
+  scale_y_continuous(labels = label_percent(accuracy = 1),
+                     expand = expansion(mult = c(0, 0.02))) +
+  scale_fill_manual(
+    values = c(Coal   = "#2c3e50",
+               Oil    = "#d35400",
+               Gas    = "#2980b9",
+               Cement = "#7f8c8d"),
+    breaks = c("Coal", "Oil", "Gas", "Cement"),
+    labels = c("Coal", "Oil", "Gas", "Cement"),
+    name   = "Emission source"
+  ) +
+  labs(
+    title    = "Coal remains a major CO2 source in several Indo-Pacific economies",
+    subtitle = paste0("Share of fossil + cement CO2 emissions, ", latest_cs_year,
+                      ". Countries ordered by coal share (highest at top)."),
+    x        = "Country",
+    y        = "Share of CO2 emissions",
+    caption  = "Source: Our World in Data CO2 dataset (owid-co2-data.csv)."
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title         = element_text(face = "bold"),
+    plot.subtitle      = element_text(colour = "grey30"),
+    plot.caption       = element_text(colour = "grey40", size = 8, hjust = 0),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor   = element_blank(),
+    legend.position    = "top"
+  )
+```
+
+:::
+
+# Discussion
+
+**Data and framing.** This analysis uses the [*Our World in Data* CO2 and Greenhouse Gas Emissions dataset](https://ourworldindata.org/co2-and-greenhouse-gas-emissions) (`owid-co2-data.csv`), filtered to country-level observations so that regional and income-group `OWID_*` aggregates are excluded. Cross-sectional figures use `r latest_cs_year`, the most recent year with complete GDP coverage for the focus economies. The exploratory question is: *which Indo-Pacific economies show patterns of high carbon intensity, rising emissions, or fossil-fuel dependence that may justify closer analysis in a future client report?*
+
+**What the figures suggest.** [Figure 1](#fig-co2-vs-gdp) shows that per-person emissions generally rise with income, but the wide spread at similar income levels indicates that economic wealth does not translate into emissions in a uniform way: in `r latest_cs_year`, Australia and the United States emitted around **14.7** and **14.9 t CO2 per person**, compared with **8.3 t** in Japan and **2.6 t** in Indonesia, while Qatar, UAE and Saudi Arabia appear as labelled high-emission outliers. [Figure 2](#fig-carbon-intensity) shows that carbon intensity (tonnes of CO2 per million US$ of GDP) has declined unevenly since 1990, suggesting different rates of decoupling: China fell from a very high base to about **420 t/M USD**, Japan (~220) and South Korea (~280) sit lower, while Vietnam remained elevated at ~**360**. [Figure 3](#fig-fuel-mix) shows that coal remains especially important in several Indo-Pacific economies, accounting for about **72%** of China's, **66%** of India's and **55%** of Indonesia's fossil + cement CO2, which points to coal dependence as a key issue for later analysis.
+
+**Link to future report.** Taken together, these figures suggest that future analysis should consider emissions scale alongside economic context, carbon-intensity trends and fuel composition. The later report can therefore carry forward three indicators: emissions relative to economic context, the trajectory of carbon intensity, and the share of coal in total emissions. No final recommendation is made at this stage; the plots identify the countries and indicators that warrant more formal investigation.
+
+# Acknowledgements
+
+- **Dataset:** [*Our World in Data* CO2 and Greenhouse Gas Emissions dataset](https://ourworldindata.org/co2-and-greenhouse-gas-emissions), file `owid-co2-data.csv`, compiled from the Global Carbon Project, the Energy Institute Statistical Review of World Energy, the Carbon Dioxide Information Analysis Center, and the World Bank.
+- **R packages:** `tidyverse`, `readr`, `scales` (which load `ggplot2`, `dplyr`, `tidyr`, `stringr`).
+- **Course materials:** DATA1001 Project 2 brief and EDA template provided in Canvas.
+
+## AI Usage
+
+| Tool | Publisher | URL | Context of use |
+|------|-----------|-----|----------------|
+| Claude Sonnet 4.6 | Anthropic | <https://claude.ai> | Drafting support — helping structure the Quarto document, refine `ggplot2` theming, and review the wording of the discussion. All code was executed and checked against the CO2 dataset by the author, and the interpretations reflect the author's reading of the plots produced. |

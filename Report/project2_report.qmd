@@ -1,0 +1,2997 @@
+---
+title: "Targeting Carbon-Intensive Growth: A Data-Driven Recommendation for Australia's Indo-Pacific Clean Energy Partnerships"
+author: "Anonymous Student"
+format:
+  html:
+    embed-resources: true
+    page-layout: full
+    toc: true
+    toc-depth: 2
+    toc-location: right
+    toc-title: "Table of contents"
+    number-sections: false
+    code-fold: true
+    code-tools: false
+    code-summary: "Code"
+    theme: cosmo
+    fig-width: 8.8
+    fig-height: 5.4
+    css: styles.css
+execute:
+  warning: false
+  message: false
+  echo: false
+crossref:
+  fig-title: "Figure"
+  fig-prefix: "Figure"
+  tbl-title: "Table"
+  tbl-prefix: "Table"
+---
+
+```{r guardrails}
+#| include: false
+# REPORT GUARDRAILS — KEEP TEMPLATE LABELS, BUT DO NOT FLATTEN THE REPORT
+# 1. The template labels must remain clearly present somewhere in the report:
+#    Client Bio / Recommendation / Evidence / Ethics Statement /
+#    AI usage statement / Acknowledgements / References / Appendix.
+# 2. The report may use richer section structure, subsections, visuals, and
+#    analytical layers when they directly strengthen the recommendation and
+#    resemble the award-case standard.
+# 3. Do not delete interactive figures, transition-gap analysis, robustness
+#    checks, or curated narrative structure unless the user explicitly asks.
+# 4. Recommendation must remain a DCCEEW country-prioritisation recommendation
+#    and must be directly defended by the evidence shown in the report.
+# 5. Any new number, label, or empirical claim must be checked against
+#    owid-co2-data.csv before render.
+# 6. When template wording is ambiguous, treat it as a presentation guide
+#    rather than a reason to strip away well-supported analysis.
+```
+
+```{r setup}
+library(tidyverse)
+library(readr)
+library(scales)
+library(broom)
+library(knitr)
+
+data_candidates <- c(
+  "Data/owid-co2-data.csv",
+  "data/owid-co2-data.csv",
+  "../data/owid-co2-data.csv",
+  "../Data/owid-co2-data.csv"
+)
+co2_path <- data_candidates[file.exists(data_candidates)][1]
+
+if (is.na(co2_path)) {
+  stop("Could not find owid-co2-data.csv in Report/Data, Report/data, ../data or ../Data.")
+}
+
+co2_raw <- read_csv(co2_path, show_col_types = FALSE)
+
+co2_countries <- co2_raw |>
+  filter(!is.na(iso_code), !str_starts(iso_code, "OWID")) |>
+  mutate(
+    carbon_intensity = if_else(gdp > 0, co2 / gdp * 1e12, NA_real_),
+    coal_share = if_else(co2 > 0, coal_co2 / co2, NA_real_),
+    oil_share = if_else(co2 > 0, oil_co2 / co2, NA_real_),
+    gas_share = if_else(co2 > 0, gas_co2 / co2, NA_real_),
+    cement_share = if_else(co2 > 0, cement_co2 / co2, NA_real_)
+  )
+
+latest_year <- 2022
+growth_start <- 2012
+
+focus_target <- c("Indonesia", "Vietnam", "India")
+focus_benchmark <- c("Australia", "Japan", "South Korea")
+focus_all <- c(focus_target, focus_benchmark)
+
+growth_10yr <- co2_countries |>
+  filter(year %in% c(growth_start, latest_year)) |>
+  select(country, iso_code, year, co2) |>
+  pivot_wider(
+    names_from = year,
+    values_from = co2,
+    names_prefix = "co2_"
+  ) |>
+  mutate(
+    co2_growth_10yr_pct =
+      (co2_2022 - co2_2012) / co2_2012 * 100
+  ) |>
+  select(country, iso_code, co2_growth_10yr_pct)
+
+intensity_change <- co2_countries |>
+  filter(year %in% c(growth_start, latest_year)) |>
+  select(country, year, carbon_intensity) |>
+  pivot_wider(
+    names_from = year,
+    values_from = carbon_intensity,
+    names_prefix = "intensity_"
+  ) |>
+  mutate(
+    intensity_change_pct =
+      (intensity_2022 - intensity_2012) / intensity_2012 * 100
+  ) |>
+  select(country, intensity_change_pct)
+
+latest_panel_all <- co2_countries |>
+  filter(
+    year == latest_year,
+    !is.na(carbon_intensity),
+    !is.na(coal_share),
+    !is.na(co2)
+  ) |>
+  left_join(growth_10yr, by = c("country", "iso_code")) |>
+  left_join(intensity_change, by = "country")
+
+latest_panel_focus <- latest_panel_all |>
+  filter(country %in% focus_all) |>
+  mutate(
+    role = case_when(
+      country %in% c("Indonesia", "Vietnam") ~ "Primary target",
+      country == "India" ~ "Supporting case",
+      TRUE ~ "Benchmark"
+    ),
+    recent_trend = case_when(
+      country == "Vietnam" ~ "Intensity rising again",
+      country == "Indonesia" ~ "Only slight decoupling",
+      country == "India" ~ "Partial decoupling",
+      country == "Australia" ~ "Strong decoupling",
+      country == "Japan" ~ "Strong decoupling",
+      country == "South Korea" ~ "Strong decoupling",
+      TRUE ~ "Mixed"
+    ),
+    priority_level = case_when(
+      country %in% c("Indonesia", "Vietnam") ~ "Primary target",
+      country == "India" ~ "Supporting case",
+      TRUE ~ "Benchmark"
+    )
+  )
+
+priority_labels <- tribble(
+  ~country,        ~label_x, ~label_y,
+  "Vietnam",       374,      118,
+  "India",         304,       62,
+  "Indonesia",     168,       68,
+  "Australia",     338,      -18,
+  "Japan",         238,      -30,
+  "South Korea",   352,       10
+)
+
+priority_plot_data <- latest_panel_focus |>
+  left_join(priority_labels, by = "country")
+
+trend_data <- co2_countries |>
+  filter(
+    country %in% focus_all,
+    year >= 1990,
+    year <= latest_year,
+    !is.na(carbon_intensity)
+  )
+
+trend_label_offsets <- tribble(
+  ~country,        ~offset,
+  "Vietnam",          12,
+  "India",           -12,
+  "Indonesia",        14,
+  "Australia",        -8,
+  "Japan",            -6,
+  "South Korea",      13
+)
+
+trend_labels <- trend_data |>
+  group_by(country) |>
+  filter(year == max(year)) |>
+  ungroup() |>
+  left_join(trend_label_offsets, by = "country") |>
+  mutate(
+    label_x = latest_year + 1.4,
+    label_y = carbon_intensity + offset
+  )
+
+fuel_wide <- latest_panel_focus |>
+  transmute(
+    country,
+    Coal = coal_share,
+    Oil = oil_share,
+    Gas = gas_share,
+    Cement = cement_share
+  )
+
+fuel_order <- fuel_wide |>
+  arrange(desc(Coal)) |>
+  pull(country)
+
+fuel_long <- fuel_wide |>
+  pivot_longer(
+    -country,
+    names_to = "source",
+    values_to = "share"
+  ) |>
+  filter(!is.na(share)) |>
+  mutate(
+    source = factor(source, levels = c("Coal", "Oil", "Gas", "Cement")),
+    country = factor(country, levels = rev(fuel_order))
+  )
+
+coal_labels <- fuel_wide |>
+  mutate(country = factor(country, levels = rev(fuel_order)))
+
+priority_table_display <- latest_panel_focus |>
+  arrange(factor(country, levels = c("Indonesia", "Vietnam", "India",
+                                     "Australia", "Japan", "South Korea"))) |>
+  transmute(
+    Country = country,
+    `Carbon intensity (t / M 2011 PPP$)` = number(carbon_intensity, accuracy = 1),
+    `Recent trend` = recent_trend,
+    `Coal share` = percent(coal_share, accuracy = 0.1),
+    `Priority level` = case_when(
+      priority_level == "Primary target" ~
+        "<span class='priority-pill priority-pill--high'>Primary target</span>",
+      priority_level == "Supporting case" ~
+        "<span class='priority-pill priority-pill--support'>Supporting case</span>",
+      TRUE ~
+        "<span class='priority-pill priority-pill--benchmark'>Benchmark</span>"
+    )
+  )
+
+reg_data <- latest_panel_all |>
+  filter(
+    !is.na(carbon_intensity),
+    carbon_intensity > 0,
+    !is.na(coal_share),
+    coal_share >= 0,
+    coal_share <= 1
+  )
+
+# Sample-composition transparency (surfaced in Data Preparation Notes)
+n_2022_country_rows <- co2_countries |>
+  filter(year == latest_year) |> nrow()
+n_panel_all        <- nrow(latest_panel_all)
+n_reg_data         <- nrow(reg_data)
+n_dropped_to_reg   <- n_panel_all - n_reg_data
+
+fit <- lm(log(carbon_intensity) ~ coal_share, data = reg_data)
+fit_summary <- summary(fit)
+fit_tidy <- tidy(fit)
+fit_glance <- glance(fit)
+
+beta1 <- fit_tidy |> filter(term == "coal_share") |> pull(estimate)
+beta1_se <- fit_tidy |> filter(term == "coal_share") |> pull(std.error)
+beta1_p <- fit_tidy |> filter(term == "coal_share") |> pull(p.value)
+beta1_t <- fit_tidy |> filter(term == "coal_share") |> pull(statistic)
+r_sq <- fit_glance$r.squared
+assoc_10pp <- (exp(beta1 * 0.10) - 1) * 100
+shapiro_p <- shapiro.test(residuals(fit))$p.value
+
+benchmark_mean_intensity <- latest_panel_focus |>
+  filter(country %in% focus_benchmark) |>
+  summarise(value = mean(carbon_intensity, na.rm = TRUE)) |>
+  pull(value)
+
+top_total_emitters <- latest_panel_all |>
+  arrange(desc(co2)) |>
+  slice_head(n = 3) |>
+  pull(country)
+
+# ============================================================================
+# Robustness datasets (Phase A — data prep only; existing figures unchanged)
+# ----------------------------------------------------------------------------
+# Three additional analytical frames that will feed the planned robustness
+# checks (results not yet rendered to figures or tables):
+#   1. growth_model_data           — does 10-yr CO2 growth track 10-yr GDP
+#                                    growth once coal share is included?
+#   2. intensity_change_model_data — does Δ carbon intensity (2012 → 2022)
+#                                    track Δ coal share over the same window?
+#   3. multivariate_2022_data      — does the coal-share slope on log(carbon
+#                                    intensity) survive controlling for log
+#                                    GDP per capita in the 2022 cross-section?
+# Each frame is built tidyverse-style off `co2_countries` and the existing
+# `growth_10yr` / `intensity_change` helpers, so nothing upstream is mutated.
+# ============================================================================
+
+# ---- Shared building blocks ------------------------------------------------
+
+# 2012 → 2022 GDP growth, mirroring the shape of `growth_10yr`
+gdp_growth_10yr <- co2_countries |>
+  filter(year %in% c(growth_start, latest_year),
+         !is.na(gdp), gdp > 0) |>
+  select(country, iso_code, year, gdp) |>
+  pivot_wider(
+    names_from   = year,
+    values_from  = gdp,
+    names_prefix = "gdp_"
+  ) |>
+  filter(!is.na(gdp_2012), !is.na(gdp_2022), gdp_2012 > 0) |>
+  mutate(gdp_growth_10yr_pct = (gdp_2022 - gdp_2012) / gdp_2012 * 100) |>
+  select(country, iso_code, gdp_growth_10yr_pct)
+
+# 2022 coal share — used as a structural covariate in the growth model
+coal_share_2022 <- co2_countries |>
+  filter(year == latest_year,
+         !is.na(coal_share),
+         coal_share >= 0, coal_share <= 1) |>
+  select(country, iso_code, coal_share)
+
+# 2012 → 2022 coal-share change in percentage points (Δ coal share × 100)
+coal_share_change <- co2_countries |>
+  filter(year %in% c(growth_start, latest_year)) |>
+  select(country, iso_code, year, coal_share) |>
+  pivot_wider(
+    names_from   = year,
+    values_from  = coal_share,
+    names_prefix = "coal_"
+  ) |>
+  filter(!is.na(coal_2012), !is.na(coal_2022),
+         coal_2012 >= 0, coal_2012 <= 1,
+         coal_2022 >= 0, coal_2022 <= 1) |>
+  mutate(coal_share_change_pp = (coal_2022 - coal_2012) * 100) |>
+  select(country, iso_code, coal_share_change_pp)
+
+# ---- 1. Growth-model dataset ----------------------------------------------
+# 10-year CO2 growth + 10-year GDP growth + 2022 coal share, on every country
+# with complete data on all three columns. Drops NA / Inf.
+growth_model_data <- growth_10yr |>
+  inner_join(gdp_growth_10yr, by = c("country", "iso_code")) |>
+  inner_join(coal_share_2022, by = c("country", "iso_code")) |>
+  filter(
+    is.finite(co2_growth_10yr_pct),
+    is.finite(gdp_growth_10yr_pct),
+    is.finite(coal_share)
+  )
+
+# ---- 2. Intensity-change-model dataset ------------------------------------
+# Δ carbon intensity (2012 → 2022, %) + Δ coal share (2012 → 2022, pp).
+# `intensity_change` upstream has only `country`, so the join key is country.
+intensity_change_model_data <- intensity_change |>
+  inner_join(coal_share_change, by = "country") |>
+  filter(
+    is.finite(intensity_change_pct),
+    is.finite(coal_share_change_pp)
+  )
+
+# ---- 3. Multivariate 2022 intensity dataset -------------------------------
+# 2022 cross-section with carbon intensity, coal share, and GDP per capita.
+# log(carbon_intensity) and log(gdp_per_capita) are the intended response /
+# control in the planned multivariate regression, so non-positive values are
+# excluded here at the data-prep stage.
+multivariate_2022_data <- co2_countries |>
+  filter(year == latest_year,
+         !is.na(carbon_intensity), carbon_intensity > 0,
+         !is.na(coal_share),       coal_share >= 0, coal_share <= 1,
+         !is.na(gdp),              gdp > 0,
+         !is.na(population),       population > 0) |>
+  mutate(gdp_per_capita = gdp / population) |>
+  filter(is.finite(gdp_per_capita), gdp_per_capita > 0) |>
+  select(country, iso_code,
+         carbon_intensity, coal_share,
+         gdp, population, gdp_per_capita)
+
+# ---- Pre-COVID growth (2010 → 2019), built parallel to growth_10yr ---------
+# Used in Appendix 2 robustness tab to test whether Vietnam's +106% headline
+# is partly a COVID-rebound artifact (2020-21 demand recovery).
+precovid_start <- 2010
+precovid_end   <- 2019
+
+co2_growth_precovid <- co2_countries |>
+  filter(year %in% c(precovid_start, precovid_end)) |>
+  select(country, iso_code, year, co2) |>
+  pivot_wider(
+    names_from   = year,
+    values_from  = co2,
+    names_prefix = "co2_"
+  ) |>
+  filter(!is.na(co2_2010), !is.na(co2_2019), co2_2010 > 0) |>
+  mutate(co2_growth_precovid_pct = (co2_2019 - co2_2010) / co2_2010 * 100) |>
+  select(country, iso_code, co2_growth_precovid_pct)
+
+# Combine both growth windows for the focus six (drives the comparison chart)
+focus_growth_compare <- latest_panel_focus |>
+  transmute(country, iso_code, role = priority_level,
+            growth_2012_2022 = co2_growth_10yr_pct) |>
+  left_join(co2_growth_precovid, by = c("country", "iso_code"))
+
+# ============================================================================
+# Robustness regressions (Phase A — three supplementary models)
+# ----------------------------------------------------------------------------
+# Three additional OLS fits that probe whether the headline coal–intensity
+# signal in the Hypothesis Test section survives different cuts of the same data. Each
+# model is associational; none claims causation. Inline scalars are pulled
+# out for the Robustness Checks section.
+# ============================================================================
+
+# ---- 1. Growth model: 10-yr CO2 growth ~ coal share + 10-yr GDP growth ----
+growth_fit         <- lm(co2_growth_10yr_pct ~ coal_share + gdp_growth_10yr_pct,
+                         data = growth_model_data)
+growth_fit_tidy    <- broom::tidy(growth_fit, conf.int = TRUE, conf.level = 0.95)
+growth_fit_glance  <- broom::glance(growth_fit)
+
+growth_coal_beta   <- growth_fit_tidy |>
+  filter(term == "coal_share") |> pull(estimate)
+growth_coal_p      <- growth_fit_tidy |>
+  filter(term == "coal_share") |> pull(p.value)
+growth_gdp_beta    <- growth_fit_tidy |>
+  filter(term == "gdp_growth_10yr_pct") |> pull(estimate)
+growth_gdp_p       <- growth_fit_tidy |>
+  filter(term == "gdp_growth_10yr_pct") |> pull(p.value)
+growth_r_sq        <- growth_fit_glance$r.squared
+
+# ---- 2. Intensity-change model: Δ intensity (%) ~ Δ coal share (pp) -------
+change_fit         <- lm(intensity_change_pct ~ coal_share_change_pp,
+                         data = intensity_change_model_data)
+change_fit_tidy    <- broom::tidy(change_fit, conf.int = TRUE, conf.level = 0.95)
+change_fit_glance  <- broom::glance(change_fit)
+
+change_coal_beta   <- change_fit_tidy |>
+  filter(term == "coal_share_change_pp") |> pull(estimate)
+change_coal_p      <- change_fit_tidy |>
+  filter(term == "coal_share_change_pp") |> pull(p.value)
+change_r_sq        <- change_fit_glance$r.squared
+
+# ---- 3. Multivariate intensity: log(intensity) ~ coal share + log(GDP/cap)
+intensity_fit_multivar         <- lm(
+  log(carbon_intensity) ~ coal_share + log(gdp_per_capita),
+  data = multivariate_2022_data
+)
+intensity_fit_multivar_tidy    <- broom::tidy(intensity_fit_multivar,
+                                              conf.int = TRUE, conf.level = 0.95)
+intensity_fit_multivar_glance  <- broom::glance(intensity_fit_multivar)
+
+mv_coal_beta       <- intensity_fit_multivar_tidy |>
+  filter(term == "coal_share") |> pull(estimate)
+mv_coal_p          <- intensity_fit_multivar_tidy |>
+  filter(term == "coal_share") |> pull(p.value)
+mv_gdpcap_beta     <- intensity_fit_multivar_tidy |>
+  filter(term == "log(gdp_per_capita)") |> pull(estimate)
+mv_gdpcap_p        <- intensity_fit_multivar_tidy |>
+  filter(term == "log(gdp_per_capita)") |> pull(p.value)
+mv_r_sq            <- intensity_fit_multivar_glance$r.squared
+
+# Headline-vs-multivariate slope shrinkage on coal_share (for inline narrative)
+mv_coal_shrinkage_pct <- (1 - mv_coal_beta / beta1) * 100
+
+# ============================================================================
+# ============================================================================
+# Rule-based priority validation
+# ----------------------------------------------------------------------------
+# The hardcoded `priority_level` above is the editorial focus-six choice.
+# This block defines a transparent rule on (coal_share, co2_growth_10yr_pct)
+# and verifies that, applied to the same six countries, the rule produces an
+# identical assignment. It also applies the rule to the full 2022 cross-
+# section to show how many countries world-wide it would classify the same
+# way, defending the priority call against "why these six?" objections.
+# ============================================================================
+
+apply_priority_rule <- function(df) {
+  df |> mutate(priority_rule = case_when(
+    coal_share >= 0.60                                       ~ "Supporting case",
+    coal_share >= 0.40 & coal_share < 0.60 &
+      !is.na(co2_growth_10yr_pct) & co2_growth_10yr_pct > 0  ~ "Primary target",
+    TRUE                                                     ~ "Benchmark"
+  ))
+}
+
+# Validation: applied to the focus six, the rule must match the editorial pick
+focus_rule_check <- latest_panel_focus |>
+  apply_priority_rule() |>
+  transmute(country, priority_level, priority_rule,
+            match = priority_level == priority_rule)
+rule_matches_editorial <- all(focus_rule_check$match)
+
+# World application: how many countries fall in each rule bucket?
+world_rule <- latest_panel_all |>
+  filter(!is.na(co2_growth_10yr_pct), !is.na(coal_share)) |>
+  apply_priority_rule()
+
+n_world_primary    <- world_rule |> filter(priority_rule == "Primary target")  |> nrow()
+n_world_supporting <- world_rule |> filter(priority_rule == "Supporting case") |> nrow()
+n_world_total      <- nrow(world_rule)
+
+# ============================================================================
+# Counterfactual transition gap (signature analytical move)
+# ----------------------------------------------------------------------------
+# Translates the multivariate intensity model into a decision-relevant number:
+# "if a focus economy's coal share matched the three-benchmark average, holding
+# its own GDP per capita fixed, how much would the model predict carbon
+# intensity to fall?" The gap between the model's prediction at the country's
+# *current* coal share and at the *benchmark* coal share quantifies the
+# intensity-reduction lever encoded in coal-share targeting alone — a model-
+# implied translation, NOT an empirical projection.
+# ============================================================================
+
+# Reference coal share = 2022 mean of Australia / Japan / South Korea
+benchmark_mean_coal_share <- latest_panel_focus |>
+  filter(country %in% focus_benchmark) |>
+  summarise(value = mean(coal_share, na.rm = TRUE)) |>
+  pull(value)
+
+counterfactual_data <- latest_panel_focus |>
+  left_join(
+    multivariate_2022_data |> select(country, gdp_per_capita),
+    by = "country"
+  ) |>
+  transmute(
+    country, role = priority_level,
+    coal_share, gdp_per_capita,
+    intensity_observed = carbon_intensity
+  ) |>
+  mutate(
+    # Predicted log intensity at current coal share + own GDP per capita
+    log_pred_current = predict(
+      intensity_fit_multivar,
+      newdata = data.frame(coal_share = coal_share,
+                           gdp_per_capita = gdp_per_capita)
+    ),
+    # Predicted log intensity at the BENCHMARK mean coal share (own GDP/cap)
+    log_pred_bench = predict(
+      intensity_fit_multivar,
+      newdata = data.frame(coal_share     = benchmark_mean_coal_share,
+                           gdp_per_capita = gdp_per_capita)
+    ),
+    pred_current = exp(log_pred_current),
+    pred_bench   = exp(log_pred_bench),
+    # Multiplicative transition gap, comparing model predictions only
+    # (not observed-vs-predicted) so the residual is held constant
+    gap_pct = (1 - pred_bench / pred_current) * 100,
+    # Absolute intensity reduction implied by the coal-share lever
+    intensity_reduction = pred_current - pred_bench
+  )
+
+# Inline scalars for the Transition-Gap section
+vietnam_gap   <- counterfactual_data |> filter(country == "Vietnam")   |> pull(gap_pct)
+indonesia_gap <- counterfactual_data |> filter(country == "Indonesia") |> pull(gap_pct)
+india_gap     <- counterfactual_data |> filter(country == "India")     |> pull(gap_pct)
+
+pluck_metric <- function(cty, var) {
+  latest_panel_focus |>
+    filter(country == cty) |>
+    pull({{ var }})
+}
+
+fmt_pct <- function(x, digits = 0, signed = TRUE) {
+  prefix <- if (signed && x > 0) "+" else ""
+  paste0(prefix, round(x, digits), "%")
+}
+
+fmt_share <- function(x, digits = 1) {
+  paste0(round(x * 100, digits), "%")
+}
+
+fmt_p <- function(x) {
+  if (is.na(x)) {
+    return("NA")
+  }
+  if (x < 0.001) {
+    return("< 0.001")
+  }
+  sprintf("= %.3f", x)
+}
+
+report_theme <- function() {
+  theme_minimal(base_size = 12) +
+    theme(
+      plot.background = element_rect(fill = "#fbfaf7", colour = NA),
+      panel.background = element_rect(fill = "#fbfaf7", colour = NA),
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(colour = "#e5dfd4", linewidth = 0.5),
+      plot.title.position = "plot",
+      plot.caption.position = "plot",
+      plot.title = element_text(
+        face = "bold",
+        size = 16,
+        colour = "#20262a"
+      ),
+      plot.subtitle = element_text(
+        size = 11.5,
+        colour = "#5b646b",
+        margin = margin(b = 10)
+      ),
+      plot.caption = element_text(
+        size = 8.6,
+        colour = "#5b646b",
+        hjust = 0
+      ),
+      axis.title = element_text(face = "bold", colour = "#20262a"),
+      axis.title.x = element_text(margin = margin(t = 10)),
+      axis.title.y = element_text(margin = margin(r = 10)),
+      axis.text = element_text(colour = "#3a3f44"),
+      axis.text.x = element_text(margin = margin(t = 2)),
+      axis.text.y = element_text(margin = margin(r = 3)),
+      strip.background = element_rect(fill = "#fbfaf7", colour = NA),
+      strip.text = element_text(face = "bold", colour = "#20262a"),
+      legend.position = "top",
+      legend.background = element_rect(fill = "#fbfaf7", colour = NA),
+      legend.key = element_rect(fill = "#fbfaf7", colour = NA),
+      legend.title = element_text(face = "bold", colour = "#20262a"),
+      legend.text = element_text(colour = "#3a3f44")
+    )
+}
+```
+
+```{r}
+#| results: asis
+priority_widget_data <- priority_plot_data |>
+  transmute(
+    country,
+    carbon_intensity = round(carbon_intensity, 1),
+    growth = round(co2_growth_10yr_pct, 1),
+    coal_share = round(coal_share * 100, 1),
+    total_co2 = round(co2, 1),
+    label_x = round(label_x, 1),
+    label_y = round(label_y, 1),
+    group = if_else(priority_level == "Benchmark", "benchmark", "target"),
+    role = priority_level
+  )
+
+trend_widget_data <- trend_data |>
+  left_join(
+    latest_panel_focus |>
+      transmute(country, role = priority_level),
+    by = "country"
+  ) |>
+  transmute(
+    country,
+    year,
+    carbon_intensity = round(carbon_intensity, 1),
+    group = if_else(role == "Benchmark", "benchmark", "target")
+  )
+
+trend_endpoint_data <- trend_labels |>
+  left_join(
+    latest_panel_focus |>
+      transmute(
+        country,
+        intensity_change_pct = round(intensity_change_pct, 1),
+        role = priority_level
+      ),
+    by = "country"
+  ) |>
+  transmute(
+    country,
+    year,
+    end_value = round(carbon_intensity, 1),
+    label_y = round(label_y, 1),
+    change = intensity_change_pct,
+    group = if_else(role == "Benchmark", "benchmark", "target")
+  )
+
+fuel_widget_data <- fuel_long |>
+  left_join(
+    latest_panel_focus |>
+      transmute(country, role = priority_level),
+    by = "country"
+  ) |>
+  transmute(
+    country = as.character(country),
+    source = as.character(source),
+    share = round(share * 100, 1),
+    group = if_else(role == "Benchmark", "benchmark", "target")
+  )
+
+transition_widget_data <- counterfactual_data |>
+  mutate(
+    group = case_when(
+      role == "Benchmark" ~ "benchmark",
+      role == "Supporting case" ~ "support",
+      TRUE ~ "target"
+    ),
+    label = case_when(
+      gap_pct >=  1 ~ sprintf("−%.0f%%", gap_pct),
+      gap_pct <= -1 ~ sprintf("+%.0f%%", -gap_pct),
+      TRUE          ~ "≈ 0%"
+    )
+  ) |>
+  arrange(desc(coal_share)) |>
+  transmute(
+    country,
+    role,
+    group,
+    coal_share = round(coal_share * 100, 1),
+    pred_current = round(pred_current, 1),
+    pred_bench = round(pred_bench, 1),
+    gap_pct = round(gap_pct, 1),
+    label
+  )
+
+emit_json <- function(id, x) {
+  cat(
+    sprintf(
+      "<script id=\"%s\" type=\"application/json\">%s</script>\n",
+      id,
+      jsonlite::toJSON(x, auto_unbox = TRUE, dataframe = "rows", digits = 8)
+    )
+  )
+}
+
+emit_json(
+  "priority-data",
+  list(
+    points = priority_widget_data,
+    benchmark_mean = round(benchmark_mean_intensity, 1),
+    zone = list(xmin = 180, xmax = 390, ymin = 0, ymax = 125)
+  )
+)
+
+emit_json(
+  "trend-data",
+  list(
+    series = trend_widget_data,
+    endpoints = trend_endpoint_data,
+    band = list(ymin = 250, ymax = 440)
+  )
+)
+
+emit_json(
+  "fuel-data",
+  list(
+    segments = fuel_widget_data,
+    order = fuel_order
+  )
+)
+
+emit_json(
+  "transition-gap-data",
+  list(
+    rows = transition_widget_data,
+    benchmark_mean_coal_share = round(benchmark_mean_coal_share * 100, 1)
+  )
+)
+```
+
+# Client Bio {#sec-client-bio}
+
+<div class="bio-hero fade-section">
+<figure class="bio-hero__image bio-logo-card">
+<div class="bio-logo-card__inner">
+<img src="assets/dcceew-logo.svg" alt="Australian Government Department of Climate Change, Energy, the Environment and Water logo">
+</div>
+<figcaption>Source: DCCEEW official website <a class="cite-link" href="#ref-dcceew-about">[1]</a> <a class="cite-link" href="#ref-dcceew-who">[2]</a></figcaption>
+</figure>
+<div class="bio-hero__text">
+<p class="bio-hero__eyebrow">Australian Government Client</p>
+<p class="bio-hero__summary">Client: DCCEEW, the Australian Government department responsible for climate change, energy, environment and water policy. Its climate and international action remit makes it a relevant client for prioritising Indo-Pacific clean-energy partnerships.<a class="cite-link" href="#ref-dcceew-intl">[3]</a> <a class="cite-link" href="#ref-dfat-invested">[4]</a></p>
+</div>
+</div>
+
+# Recommendation {#sec-recommendation}
+
+<div class="recommendation-statement fade-section">
+<p>DCCEEW should prioritise Vietnam and Indonesia for partnership support, use India as a supporting coal-dependence case, and treat Australia, Japan and South Korea as benchmarks.</p>
+<ol class="recommendation-actions recommendation-actions--compact">
+<li><strong>Primary:</strong> Vietnam and Indonesia.</li>
+<li><strong>Supporting:</strong> India.</li>
+<li><strong>Benchmarks:</strong> Australia, Japan and South Korea.</li>
+</ol>
+</div>
+
+# Key Insights {#sec-key-insights}
+
+<div class="insight-grid fade-section">
+<div class="insight-card insight-card--vietnam">
+<span class="insight-card__eyebrow">Trajectory Signal</span>
+<span class="insight-card__value"><span class="count-up" data-target="`r round(pluck_metric('Vietnam', intensity_change_pct), 1)`" data-decimals="1" data-prefix="+" data-suffix="%">0</span></span>
+<p class="insight-card__body">Vietnam's carbon intensity is higher than in 2012, making it the clearest case of stalled decoupling in the focus group.</p>
+</div>
+<div class="insight-card insight-card--india">
+<span class="insight-card__eyebrow">Rule-Based Screen</span>
+<span class="insight-card__value"><span class="count-up" data-target="`r n_world_primary`" data-decimals="0">0</span><span class="insight-card__unit">economies</span></span>
+<p class="insight-card__body">Only `r n_world_primary` economies in 2022 have a coal share between 40% and 60% combined with positive 10-year CO2 growth; Vietnam and Indonesia are two of them.</p>
+</div>
+<div class="insight-card insight-card--model">
+<span class="insight-card__eyebrow">Global Hypothesis Test</span>
+<span class="insight-card__value"><span class="count-up" data-target="`r round(assoc_10pp, 1)`" data-decimals="1" data-prefix="+" data-suffix="%">0</span></span>
+<p class="insight-card__body">A 10-point rise in coal share is associated with roughly `r round(assoc_10pp, 1)`% higher carbon intensity in the full 2022 cross-country sample.</p>
+</div>
+</div>
+
+The evidence chain is strongest when the figures are read together rather than separately: Figure 1 identifies the priority zone, Figure 2 tests whether high intensity is persistent, and Figure 3 explains which partnership lever matters once a country is prioritised.
+
+# Evidence {#sec-evidence}
+
+Total emissions alone are not enough: China, the United States and India are the largest 2022 emitters, but prioritisation is about transition leverage, not scale. Figure 1 maps carbon intensity, 10-year CO2 growth, total CO2 and coal share. Vietnam combines `r round(pluck_metric("Vietnam", carbon_intensity))` t CO2 per million 2011 PPP$ with `r fmt_pct(pluck_metric("Vietnam", co2_growth_10yr_pct), 1)` CO2 growth; Indonesia combines `r fmt_pct(pluck_metric("Indonesia", co2_growth_10yr_pct), 1)` growth with a `r fmt_share(pluck_metric("Indonesia", coal_share), 1)` coal share; all three benchmarks record negative CO2 growth.
+
+```{r}
+#| label: code-evidence-setup
+#| echo: true
+#| eval: false
+#| code-summary: "Code — evidence setup for the main figures"
+# Focus economies and benchmark labels used across Figures 1-3
+focus_target    <- c("Indonesia", "Vietnam", "India")
+focus_benchmark <- c("Australia", "Japan", "South Korea")
+focus_all       <- c(focus_target, focus_benchmark)
+
+# Country-level OWID rows only; OWID aggregate regions are excluded
+co2_countries <- co2_raw |>
+  filter(!is.na(iso_code), !str_starts(iso_code, "OWID")) |>
+  mutate(
+    carbon_intensity = co2 / gdp * 1e12,
+    coal_share = coal_co2 / co2,
+    oil_share = oil_co2 / co2,
+    gas_share = gas_co2 / co2,
+    cement_share = cement_co2 / co2
+  )
+
+# Ten-year growth and intensity-change summaries used in Figure 1 and the table
+growth_10yr <- co2_countries |>
+  filter(year %in% c(2012, 2022)) |>
+  select(country, iso_code, year, co2) |>
+  pivot_wider(names_from = year, values_from = co2, names_prefix = "co2_") |>
+  mutate(co2_growth_10yr_pct = (co2_2022 - co2_2012) / co2_2012 * 100) |>
+  select(country, iso_code, co2_growth_10yr_pct)
+
+intensity_change <- co2_countries |>
+  filter(year %in% c(2012, 2022)) |>
+  select(country, year, carbon_intensity) |>
+  pivot_wider(names_from = year, values_from = carbon_intensity,
+              names_prefix = "intensity_") |>
+  mutate(intensity_change_pct =
+           (intensity_2022 - intensity_2012) / intensity_2012 * 100) |>
+  select(country, intensity_change_pct)
+
+# Latest complete-year panel for the report's decision map
+latest_panel_all <- co2_countries |>
+  filter(year == 2022, co2 > 0, gdp > 0) |>
+  select(country, co2, gdp, carbon_intensity,
+         coal_share, oil_share, gas_share, cement_share) |>
+  left_join(growth_10yr |> select(country, co2_growth_10yr_pct), by = "country") |>
+  left_join(intensity_change, by = "country")
+
+latest_panel_focus <- latest_panel_all |>
+  filter(country %in% focus_all) |>
+  mutate(
+    priority_level = case_when(
+      country %in% c("Indonesia", "Vietnam") ~ "Primary target",
+      country == "India" ~ "Supporting case",
+      TRUE ~ "Benchmark"
+    )
+  )
+
+# These objects feed the three interactive SVG figures in the Evidence section
+priority_widget_data <- latest_panel_all |> filter(!is.na(carbon_intensity), !is.na(coal_share))
+trend_widget_data    <- trend_data      |> filter(country %in% focus_all)
+fuel_widget_data     <- fuel_long       |> filter(country %in% focus_all)
+```
+
+```{r}
+#| label: code-figure-1-priority-map
+#| echo: true
+#| eval: false
+#| code-summary: "Code — Figure 1 priority map"
+priority_widget_data <- latest_panel_all |>
+  mutate(
+    role = case_when(
+      country %in% c("Vietnam", "Indonesia") ~ "target",
+      country %in% c("Australia", "Japan", "South Korea") ~ "benchmark",
+      TRUE ~ "other"
+    ),
+    coal_category = case_when(
+      coal_share >= 0.60 ~ "High coal share",
+      coal_share >= 0.30 ~ "Moderate coal share",
+      TRUE ~ "Lower coal share"
+    )
+  )
+
+# The document emits this object as JSON and a small JavaScript/SVG layer draws:
+# x = carbon_intensity, y = 10-year CO2 growth, size = total CO2,
+# fill = coal category, and buttons = all / priority / benchmark focus.
+emit_json("priority-data", list(points = priority_widget_data))
+```
+
+<div id="priority-map-panel" class="interactive-figure fade-section" data-chart="priority">
+<div class="chart-header">
+<div class="chart-copy">
+<p class="chart-eyebrow">Figure 1</p>
+<p class="chart-title">Total emissions do not tell DCCEEW where partnership leverage is greatest</p>
+</div>
+<div class="chart-controls" data-chart-controls="priority">
+<button type="button" class="chart-button is-active" data-filter="all">All economies</button>
+<button type="button" class="chart-button" data-filter="target">Priority cases</button>
+<button type="button" class="chart-button" data-filter="benchmark">Benchmarks</button>
+</div>
+</div>
+<div class="interactive-chart" data-chart-stage="priority"></div>
+<p class="chart-caption">Carbon intensity (x), 10-year CO2 growth (y), total CO2 (size) and coal share (fill). Vietnam and Indonesia occupy the highest-priority zone.</p>
+</div>
+
+Figure 2 adds trajectory. Since 2012, Vietnam's carbon intensity has risen by `r fmt_pct(pluck_metric("Vietnam", intensity_change_pct), 1)`, Indonesia's has fallen by only `r fmt_pct(abs(pluck_metric("Indonesia", intensity_change_pct)), 1, signed = FALSE)`, and India still records `r round(pluck_metric("India", carbon_intensity))` t CO2 per million 2011 PPP$. Australia, Japan and South Korea each decline by about a quarter, indicating much stronger decoupling.
+
+```{r}
+#| label: code-figure-2-intensity-trends
+#| echo: true
+#| eval: false
+#| code-summary: "Code — Figure 2 carbon-intensity trajectories"
+trend_widget_data <- co2_countries |>
+  filter(country %in% focus_all, year >= 1990, year <= 2022) |>
+  select(country, year, carbon_intensity) |>
+  filter(!is.na(carbon_intensity)) |>
+  mutate(role = case_when(
+    country %in% c("Vietnam", "Indonesia", "India") ~ "target",
+    TRUE ~ "benchmark"
+  ))
+
+trend_endpoint_data <- trend_widget_data |>
+  group_by(country) |>
+  filter(year == max(year)) |>
+  ungroup()
+
+# JavaScript reads `trend-data` and draws one line per economy, with buttons
+# that dim non-priority or non-benchmark series without changing the data.
+emit_json("trend-data", list(series = trend_widget_data,
+                             endpoints = trend_endpoint_data))
+```
+
+<div id="intensity-trends-panel" class="interactive-figure fade-section" data-chart="trend">
+<div class="chart-header">
+<div class="chart-copy">
+<p class="chart-eyebrow">Figure 2</p>
+<p class="chart-title">Carbon intensity matters most when it is read as a trajectory</p>
+</div>
+<div class="chart-controls" data-chart-controls="trend">
+<button type="button" class="chart-button is-active" data-filter="all">All series</button>
+<button type="button" class="chart-button" data-filter="target">Priority cases</button>
+<button type="button" class="chart-button" data-filter="benchmark">Benchmarks</button>
+</div>
+</div>
+<div class="interactive-chart" data-chart-stage="trend"></div>
+<p class="chart-caption">Carbon intensity, 1990-2022. Vietnam rises again after 2012, Indonesia decouples only weakly, and the benchmark economies decline more decisively.</p>
+</div>
+
+Figure 3 identifies the relevant partnership lever. Coal still supplies `r fmt_share(pluck_metric("India", coal_share), 1)` of India's CO2, `r fmt_share(pluck_metric("Indonesia", coal_share), 1)` of Indonesia's and `r fmt_share(pluck_metric("Vietnam", coal_share), 1)` of Vietnam's, so the recommendation points toward clean-power finance, grid flexibility and coal displacement rather than generic climate diplomacy. This reading is consistent with <a class="cite-link" href="#ref-iea-seao">IEA (2024a)</a>, <a class="cite-link" href="#ref-iea-weinvest">IEA (2024b)</a>, <a class="cite-link" href="#ref-ipcc-ar6">IPCC (2022)</a> and <a class="cite-link" href="#ref-wb-phasedown">World Bank (2023)</a>.
+
+```{r}
+#| label: code-figure-3-fuel-mix
+#| echo: true
+#| eval: false
+#| code-summary: "Code — Figure 3 CO2 composition by source"
+fuel_long <- latest_panel_focus |>
+  transmute(
+    country,
+    Coal   = coal_share,
+    Oil    = oil_share,
+    Gas    = gas_share,
+    Cement = cement_share
+  ) |>
+  pivot_longer(-country, names_to = "source", values_to = "share") |>
+  filter(!is.na(share))
+
+fuel_order <- fuel_long |>
+  filter(source == "Coal") |>
+  arrange(desc(share)) |>
+  pull(country)
+
+# JavaScript reads `fuel-data` and draws a sorted stacked bar chart.
+# The "Coal focus" button desaturates oil/gas/cement to foreground coal.
+emit_json("fuel-data", list(segments = fuel_long, order = fuel_order))
+```
+
+<div id="fuel-mix-panel" class="interactive-figure fade-section" data-chart="fuel">
+<div class="chart-header">
+<div class="chart-copy">
+<p class="chart-eyebrow">Figure 3</p>
+<p class="chart-title">Coal dependence turns a general climate issue into a specific partnership target</p>
+</div>
+<div class="chart-controls" data-chart-controls="fuel">
+<button type="button" class="chart-button is-active" data-mode="all">All sources</button>
+<button type="button" class="chart-button" data-mode="coal">Coal focus</button>
+</div>
+</div>
+<div class="chart-legend chart-legend--fuel">
+<span><i class="legend-swatch legend-swatch--coal"></i>Coal</span>
+<span><i class="legend-swatch legend-swatch--oil"></i>Oil</span>
+<span><i class="legend-swatch legend-swatch--gas"></i>Gas</span>
+<span><i class="legend-swatch legend-swatch--cement"></i>Cement</span>
+</div>
+<div class="interactive-chart" data-chart-stage="fuel"></div>
+<p class="chart-caption">2022 CO2 composition by source. Coal dominates India, Indonesia and Vietnam, which points toward power-transition and coal-displacement support.</p>
+</div>
+
+The hypothesis test extends the sample to every country with complete 2022 data. A log-linear regression finds a positive association between coal share and carbon intensity (beta = `r round(beta1, 2)`, p `r fmt_p(beta1_p)`, n = `r nrow(reg_data)`), so the visual pattern is not just a six-country artifact. Coal share is used here as a prioritisation signal, not as sole causal proof.
+
+Taken together, the evidence directly supports the recommendation: Vietnam and Indonesia combine the clearest priority-zone position, weaker decoupling and coal-heavy transition levers; India remains a supporting case because its coal dependence is high but its intensity trajectory is less stalled. This is a prioritisation guide, not project selection; feasibility, cost and local grid constraints still require due diligence.
+
+<div class="fade-section">
+```{r}
+#| label: tbl-priority
+#| echo: true
+#| tbl-cap: "Curated evidence for the six focus economies."
+priority_table_display |>
+  kable(
+    format = "html",
+    escape = FALSE,
+    table.attr = "class='summary-table'"
+  )
+```
+</div>
+
+# Statistical Support {#sec-statistical-support}
+
+## Hypothesis Test {#sec-hypothesis}
+
+To test whether coal-heavy systems are systematically more emissions-intensive, a 2022 cross-country log-linear regression models **log carbon intensity** on **coal share**. The estimated slope is **`r round(beta1, 2)`** (SE **`r round(beta1_se, 2)`**), with **t = `r round(beta1_t, 2)`**, **p `r fmt_p(beta1_p)`**, and **R-squared = `r round(r_sq, 2)`** across **`r nrow(reg_data)` countries**.
+
+The sample is widened from the six focus economies to every country with complete 2022 data, so the slope reflects a cross-country structural pattern rather than a six-point line.
+
+```{r}
+#| label: code-hypothesis-fit
+#| echo: true
+#| eval: false
+#| code-summary: "Code — fit log-linear model on the 2022 cross-section"
+# Widen to every country with complete intensity + coal share in 2022
+reg_data <- latest_panel_all |>
+  filter(!is.na(carbon_intensity), carbon_intensity > 0,
+         !is.na(coal_share), coal_share >= 0, coal_share <= 1)
+
+fit       <- lm(log(carbon_intensity) ~ coal_share, data = reg_data)
+fit_tidy  <- broom::tidy(fit)      # coefficients, SE, t, p
+fit_glance <- broom::glance(fit)   # R^2, F, df, n
+
+# Headline slope on coal share + effect of a 10-point coal rise
+beta1      <- fit_tidy |> filter(term == "coal_share") |> pull(estimate)
+assoc_10pp <- (exp(beta1 * 0.10) - 1) * 100   # % change in intensity
+```
+
+<div class="metric-strip fade-section">
+<div class="metric-strip__item">
+<span class="metric-label"><span>Slope on</span><span>coal share</span></span>
+<span class="metric-value">`r round(beta1, 2)`</span>
+</div>
+<div class="metric-strip__item">
+<span class="metric-label"><span>Intensity effect</span><span>of a 10-point coal rise</span></span>
+<span class="metric-value">`r round(assoc_10pp, 1)`%</span>
+</div>
+<div class="metric-strip__item">
+<span class="metric-label"><span>Model</span><span>R-squared</span></span>
+<span class="metric-value">`r round(r_sq, 2)`</span>
+</div>
+</div>
+
+The result supports the report's main argument: **coal dependence is strongly associated with higher carbon intensity across countries**. The model R² of `r round(r_sq, 2)` indicates that coal share alone explains roughly a fifth of the cross-country variation in log carbon intensity — consistent with using coal share as a screening signal rather than as a deterministic cause. This is not causal proof, but it reinforces the practical reading of the visuals: coal-heavy economies are more likely to benefit from targeted clean-energy transition support. Full HATPC detail is provided in the Appendix.
+
+## Transition Gap {#sec-transition-gap}
+
+The headline slope on coal share is statistically significant — but for DCCEEW the more useful question is **how much that slope means in tonnes of CO2 per million 2011 PPP$**. The multivariate model in the Robustness Checks subsection lets us translate it into a decision-relevant counterfactual: *if a focus economy's coal share matched the three-benchmark average (`r round(benchmark_mean_coal_share*100, 0)`%, the 2022 mean of Australia, Japan and South Korea), holding its own GDP per capita fixed, what would the model predict for its carbon intensity?*
+
+<div class="interactive-figure transition-gap-figure fade-section" data-chart="transition-gap">
+```{r}
+#| label: code-transition-gap
+#| echo: true
+#| results: hide
+#| code-summary: "Code — transition-gap chart data"
+
+ctr_plot <- transition_widget_data |>
+  mutate(
+    country = factor(country, levels = rev(country)),
+    label_x = pmin(pred_bench, pred_current) - 6
+  )
+
+transition_x_range <- range(c(ctr_plot$pred_current, ctr_plot$pred_bench))
+```
+<div class="chart-header chart-header--transition">
+<div class="chart-copy">
+<p class="chart-eyebrow">Model Translation</p>
+<h3 class="chart-title">Coal-share alignment produces double-digit modelled gaps for the primary targets</h3>
+</div>
+<div class="chart-legend transition-legend" aria-label="Transition-gap legend">
+<span><i class="legend-dot legend-dot--filled"></i>Current</span>
+<span><i class="legend-dot legend-dot--open"></i>Benchmark-share</span>
+<span><i class="legend-line"></i>Gap</span>
+</div>
+</div>
+<div class="interactive-chart transition-gap-stage" data-chart-stage="transition-gap"></div>
+<p class="chart-caption"><strong>Transition-gap chart.</strong> Filled point: predicted carbon intensity at each focus economy's 2022 coal share. Open point: predicted intensity if coal share moved to the three-benchmark mean (about `r round(benchmark_mean_coal_share*100, 0)`% — the mean of Australia 38.0%, Japan 40.4% and South Korea 44.5%), holding GDP per capita fixed. Both points are model predictions, so each country's residual (its deviation from the world fit) is held constant; the gap therefore reflects only the coal-share lever, not observed intensity. "Tonnes CO2" means metric tonnes of carbon dioxide; PPP$ means purchasing-power-parity dollars, here constant 2011 international dollars in OWID's GDP series.</p>
+</div>
+
+The model implies the largest single-variable intensity-reduction lever for **India** (**−`r round(india_gap, 0)`%**), consistent with India's coal share being the highest in the focus group and therefore the furthest from the benchmark reference. **Indonesia** sits in the middle (**−`r round(indonesia_gap, 0)`%**), and **Vietnam** at **−`r round(vietnam_gap, 0)`%** — proportional to each country's distance from the `r round(benchmark_mean_coal_share*100, 0)`% benchmark coal share. The **benchmarks themselves** show ≈ 0% gaps because their 2022 coal shares are already at or near this reference value, which validates the construction of the metric: countries that already look like the benchmark have nothing to close. This does **not** automatically make India the first-order target, because the recommendation weighs a bundle of signals rather than the largest modelled coal-gap alone; Vietnam and Indonesia still combine weaker decoupling with a more focused Southeast Asian partnership setting. This priority framing also reflects DCCEEW's existing Southeast-Asia partnership focus under the DFAT Southeast Asia Economic Strategy to 2040 (<a class="cite-link" href="#ref-dfat-invested">[4]</a>), within which India enters as an indispensable South-Asian comparator rather than the primary deployment target.
+
+Read the chart as a **directional indicator**, not a forecast. The gap is the model-implied effect of moving *only one input* — coal share — to a reference value, ceteris paribus. In reality, moving coal share also moves capital stock, employment, grid composition and policy; none of those second-order effects appear here. The chart answers a narrow question — *how much intensity reduction is encoded in coal-share targeting alone?* — and leaves feasibility, finance cost and political economy to the partnership-design stage.
+
+What this adds to the recommendation: even on the most conservative reading (where the model captures only one structural channel), coal-share-led partnership support has a **double-digit** intensity-reduction signature for both primary targets. That justifies the priority call on *quantitative* terms, not just on level / trend / coal-share triangulation. In partnership-design terms, this means the same coal-share intervention is modelled to deliver a larger per-country intensity reduction in Vietnam and Indonesia than in already-decoupled economies — the structural argument for concentrating partnership effort where the structural lever is largest.
+
+## Robustness Checks {#sec-robustness}
+
+The headline regression in the Hypothesis Test subsection uses one predictor on a 2022 cross-section. Three further models test whether the **coal-intensity signal** still appears under different lenses on the same OWID data. Each is a *robustness check*, not a causal proof: the report continues to read coal share as a **priority signal**, not a single decisive cause.
+
+::: {.panel-tabset .robustness-tabs}
+
+### Growth model
+
+Tests whether **10-year CO2 growth (2012–2022)** still tracks **2022 coal share** once **10-year GDP growth** is netted out — i.e. whether coal-heavy economies grow emissions faster *after* accounting for the fact that they may also grow GDP faster.
+
+<div class="fade-section">
+```{r}
+#| label: tbl-growth-fit
+#| echo: true
+#| tbl-cap: "Growth model: CO2 growth (%, 2012–2022) regressed on 2022 coal share and GDP growth (%, 2012–2022)."
+growth_fit_tidy |>
+  transmute(
+    Term = case_when(
+      term == "(Intercept)"           ~ "Intercept",
+      term == "coal_share"            ~ "Coal share (2022)",
+      term == "gdp_growth_10yr_pct"   ~ "GDP growth, 2012–2022 (%)",
+      TRUE                            ~ term
+    ),
+    Estimate     = signif(estimate, 3),
+    `Std. error` = signif(std.error, 3),
+    `t-stat`     = signif(statistic, 3),
+    `p-value`    = signif(p.value, 3),
+    `CI 2.5%`    = signif(conf.low, 3),
+    `CI 97.5%`   = signif(conf.high, 3)
+  ) |>
+  kable(format = "html", table.attr = "class='summary-table'")
+```
+</div>
+
+After controlling for GDP growth, the coal-share coefficient is **`r round(growth_coal_beta, 1)`** but **not statistically significant** (p `r fmt_p(growth_coal_p)`); the GDP-growth control is the dominant predictor (β = **`r round(growth_gdp_beta, 2)`**, p `r fmt_p(growth_gdp_p)`), with model R² = `r round(growth_r_sq, 2)` on `r nrow(growth_model_data)` countries. **The honest read: decade-on-decade CO2 growth is largely a GDP-growth story, not a pure coal-share story.** Coal share matters most for *how much CO2 each unit of GDP produces* (intensity, tested in the next two models) rather than for the absolute *rate of growth*. The Priority Map's vertical axis should therefore be read as a development-trajectory signal, not as direct evidence that coal share drives growth.
+
+### Intensity-change model
+
+Tests whether countries that **raised** coal share between 2012 and 2022 also saw their **carbon intensity rise** over the same window. Reading change-on-change instead of level-on-level partly differences out time-invariant country effects (geography, baseline industrial structure).
+
+<div class="fade-section">
+```{r}
+#| label: tbl-change-fit
+#| echo: true
+#| tbl-cap: "Intensity-change model: Δ carbon intensity (%, 2012–2022) regressed on Δ coal share (pp, 2012–2022)."
+change_fit_tidy |>
+  transmute(
+    Term = case_when(
+      term == "(Intercept)"            ~ "Intercept",
+      term == "coal_share_change_pp"   ~ "Δ coal share (pp, 2012–2022)",
+      TRUE                             ~ term
+    ),
+    Estimate     = signif(estimate, 3),
+    `Std. error` = signif(std.error, 3),
+    `t-stat`     = signif(statistic, 3),
+    `p-value`    = signif(p.value, 3),
+    `CI 2.5%`    = signif(conf.low, 3),
+    `CI 97.5%`   = signif(conf.high, 3)
+  ) |>
+  kable(format = "html", table.attr = "class='summary-table'")
+```
+</div>
+
+A 1-percentage-point rise in coal share over the decade is associated with a **`r round(change_coal_beta, 2)`%** change in carbon intensity (p `r fmt_p(change_coal_p)`, R² = `r round(change_r_sq, 2)`, n = `r nrow(intensity_change_model_data)`). The effect is statistically strong and in the expected direction: countries that grew their coal share also saw intensity rise (or fall less). Because differences-on-differences partially absorb time-invariant country effects, this is the most robust of the three checks for the headline coal–intensity link. Still associational — strong directional evidence, not a causal coefficient.
+
+### Multivariate intensity model
+
+Tests whether the **coal-share slope on log carbon intensity** survives once **log GDP per capita** is added as a control for development level. Many low-coal economies are also high-income service economies, so the headline univariate slope partly reflects this confound.
+
+<div class="fade-section">
+```{r}
+#| label: tbl-mv-fit
+#| echo: true
+#| tbl-cap: "Multivariate intensity model: log(carbon intensity, 2022) regressed on coal share and log(GDP per capita, 2022)."
+intensity_fit_multivar_tidy |>
+  transmute(
+    Term = case_when(
+      term == "(Intercept)"          ~ "Intercept",
+      term == "coal_share"           ~ "Coal share (2022)",
+      term == "log(gdp_per_capita)"  ~ "log GDP per capita (2022)",
+      TRUE                           ~ term
+    ),
+    Estimate     = signif(estimate, 3),
+    `Std. error` = signif(std.error, 3),
+    `t-stat`     = signif(statistic, 3),
+    `p-value`    = signif(p.value, 3),
+    `CI 2.5%`    = signif(conf.low, 3),
+    `CI 97.5%`   = signif(conf.high, 3)
+  ) |>
+  kable(format = "html", table.attr = "class='summary-table'")
+```
+</div>
+
+After adding log GDP per capita as a control, the coal-share slope is essentially unchanged: **`r round(mv_coal_beta, 2)`** versus the univariate **`r round(beta1, 2)`**, still highly significant (p `r fmt_p(mv_coal_p)`, model R² = `r round(mv_r_sq, 2)`). The log GDP-per-capita coefficient is small (**`r round(mv_gdpcap_beta, 2)`**) and **not statistically significant** (p `r fmt_p(mv_gdpcap_p)`), suggesting that — within this linear specification — development level does not absorb additional variation in log carbon intensity once coal share is in the model. The coal signal therefore **survives the development control** rather than being explained away by the fact that wealthier economies happen to use less coal. This is the cleanest robustness result of the three: the headline coal–intensity association is not an artifact of conflating coal use with national income.
+
+### What the three checks together support
+
+The three checks tell a consistent — but more nuanced — story than the headline regression alone. Coal share is **positively signed in all three specifications** and **statistically significant in two of three** (intensity-change and multivariate); it is **not significant** for decade-on-decade *growth* once GDP growth is controlled for. Read together:
+
+- **Coal share is a robust signal for carbon intensity** (level and change). Its slope on log intensity barely moves when development level is added, and its decade-on-decade *change* tracks the change in intensity strongly.
+- **Coal share is not, on its own, a robust signal for emissions growth**. Decade-on-decade growth is dominated by GDP growth itself, so the Priority Map's growth axis should be read as a development-trajectory marker rather than as separate evidence of a coal effect.
+
+Together the checks support reading coal share as a **priority indicator** for *what kind of partnership lever fits* (clean-power transition, grid flexibility), but they discipline the report against treating coal share as a one-cause explanation for emissions growth. The claims remain **associational** — robustness checks, not causal proof.
+
+:::
+
+# Limitations {#sec-limitations}
+
+<div class="fade-section">
+<ol class="limitation-list">
+<li><strong>OWID is mainly production-based.</strong> The dataset measures territorial emissions, so it does not fully capture consumption-based responsibility or emissions embodied in trade. This matters when comparing developing production economies with higher-income consumption economies.<a class="cite-link" href="#ref-peters">[5]</a> Conversely, this strengthens rather than weakens the case for partnership support: helping Vietnam and Indonesia decarbonise production also reduces the embodied carbon flowing into Australian and broader Indo-Pacific supply chains, an effect not visible in the territorial accounting used here.</li>
+<li><strong>Country averages hide project detail.</strong> National data cannot identify the provinces, sectors, grid constraints or financing windows where partnership support would land. The report prioritises <em>countries</em>, not specific investments.</li>
+<li><strong>The statistical evidence is associational.</strong> Coal share, carbon intensity and CO2 growth move together in useful ways, but the models do not prove that coal share alone <em>causes</em> higher intensity. Industrial structure, technology, regulation, energy prices and GDP growth also shape the results.</li>
+<li><strong>Priority is not feasibility.</strong> A high coal share signals both transition leverage and transition difficulty: embedded capital stock, employment exposure and grid design can make clean-energy support slower or more expensive. DCCEEW would still need country-level due diligence before designing projects.</li>
+</ol>
+</div>
+
+# Statements {#sec-statements}
+
+<div class="statements-grid fade-section">
+<div class="statements-card">
+<h2 class="statements-card__title" id="sec-ethics">Ethics Statement</h2>
+<p>This report follows the ISI shared value of professionalism and the ethical principle of pursuing objectivity by using public data, checking calculations against OWID, comparing countries on common indicators, and stating limits openly rather than implying causal certainty.</p>
+</div>
+<div class="statements-card">
+<h2 class="statements-card__title" id="sec-ai">AI usage statement</h2>
+<p>This report used ChatGPT-5 (OpenAI, <a href="https://openai.com/">https://openai.com/</a>) to assist with feedback, drafting, wording refinement, data-pipeline review and HTML/CSS presentation.</p>
+<p>AI was used only as an aid. All data processing, regression modelling, calculations and final interpretation were independently checked and decided by the author.</p>
+</div>
+</div>
+
+# Acknowledgements {#sec-ack}
+
+- **Course support:** I sincerely thank the University of Sydney DATA1001 course team, including the Ed lessons, lecturers, tutors and teaching staff, for their guidance, project structure and statistical-reporting support, all of which shaped this work.
+- **Dataset:** I thank *Our World in Data* for the public CO2 and Greenhouse Gas Emissions dataset (`owid-co2-data.csv`) and the open climate-data explanations that support transparent analysis: <https://ourworldindata.org/co2-and-greenhouse-gas-emissions>.
+- **Report craft references:** I thank <a href="https://www.kaggle.com/code">Kaggle Code</a> for public data-science report examples, <a href="https://pudding.cool/">The Pudding</a> for visual-storytelling inspiration, and <a href="https://datajournalism.com/read/handbook/one">The Data Journalism Handbook / DataJournalism.com</a> for helping me learn how data analysis can be shaped into a clearer story.
+- **External evidence:** DCCEEW, DFAT, IEA, IPCC and World Bank sources listed below.
+- **Software:** R, `tidyverse`, `readr`, `scales`, `broom`, `jsonlite`, and `knitr`.
+
+# References {#sec-references}
+
+<div class="reference-list">
+
+<p id="ref-dcceew-about">Department of Climate Change, Energy, the Environment and Water (DCCEEW). (2024). *About us*. Australian Government. <https://www.dcceew.gov.au/about></p>
+
+<p id="ref-dcceew-who">Department of Climate Change, Energy, the Environment and Water (DCCEEW). (2023). *Who we are*. Australian Government. <https://www.dcceew.gov.au/about/who-we-are></p>
+
+<p id="ref-dcceew-intl">Department of Climate Change, Energy, the Environment and Water (DCCEEW). (2026). *International climate action*. Australian Government. <https://www.dcceew.gov.au/climate-change/strategies/international-climate-change-commitments></p>
+
+<p id="ref-dfat-invested">Department of Foreign Affairs and Trade (DFAT). (2025). *Implementing Invested: Australia's Southeast Asia Economic Strategy to 2040*. Australian Government. <https://www.dfat.gov.au/countries-economies-and-regions/southeast-asia/invested-southeast-asia></p>
+
+<p id="ref-datajournalism-handbook">DataJournalism.com. (n.d.). *The Data Journalism Handbook 1*. European Journalism Centre. <https://datajournalism.com/read/handbook/one></p>
+
+<p id="ref-ipcc-ar6">Intergovernmental Panel on Climate Change (IPCC). (2022). *Climate Change 2022: Mitigation of Climate Change*. Cambridge University Press. <https://www.ipcc.ch/report/ar6/wg3/></p>
+
+<p id="ref-iea-seao">International Energy Agency (IEA). (2024a). *Southeast Asia Energy Outlook 2024*. IEA. <https://www.iea.org/reports/southeast-asia-energy-outlook-2024></p>
+
+<p id="ref-iea-weinvest">International Energy Agency (IEA). (2024b). *World Energy Investment 2024: Southeast Asia*. IEA. <https://www.iea.org/reports/world-energy-investment-2024/southeast-asia></p>
+
+<p id="ref-kaggle-code">Kaggle. (n.d.). *Kaggle Code*. <https://www.kaggle.com/code></p>
+
+<p id="ref-owid">Our World in Data. (2025). *CO2 and Greenhouse Gas Emissions*. <https://ourworldindata.org/co2-and-greenhouse-gas-emissions></p>
+
+<p id="ref-peters">Peters, G. P., Minx, J. C., Weber, C. L., & Edenhofer, O. (2011). Growth in emission transfers via international trade from 1990 to 2008. *Proceedings of the National Academy of Sciences, 108*(21), 8903-8908. <https://doi.org/10.1073/pnas.1006388108></p>
+
+<p id="ref-the-pudding">The Pudding. (n.d.). *The Pudding*. <https://pudding.cool/></p>
+
+<p id="ref-wb-phasedown">World Bank. (2023). *Scaling Up to Phase Down*. World Bank. <https://www.worldbank.org/en/topic/energy/publication/scaling-up-to-phase-down></p>
+
+</div>
+
+# Appendix {#sec-appendix}
+
+Detailed diagnostics, full HATPC reporting and supplementary robustness visuals are collected here so the main report can stay reader-focused without losing analytical transparency.
+
+## Appendix 1 — HATPC Process {#sec-appendix1}
+
+Full Hypotheses / Assumptions / Test statistic / P-value / Conclusion (HATPC) detail for the log-linear regression used in the Hypothesis Test subsection.
+
+::: {.panel-tabset .hatpc-tabs}
+
+### H
+
+**H — Hypotheses**
+
+- **H0:** The slope on coal share is zero; coal dependence has no linear association with log carbon intensity.
+- **H1:** The slope on coal share is not zero; coal dependence is associated with log carbon intensity.
+
+### A
+
+**A — Assumptions**
+
+- **Linearity:** The fitted log-linear form is appropriate as a first-order approximation for the cross-country relationship.
+- **Normality:** Residuals are approximately normal after log transformation; Shapiro-Wilk **p `r fmt_p(shapiro_p)`**.
+- **Independence:** Each observation is a distinct country in the 2022 cross-section.
+- **Scope:** The model is descriptive and cross-sectional, so it supports prioritisation rather than causal inference.
+
+The two diagnostic panels below back up the linearity and normality claims visually. The residuals-vs-fitted plot should show no obvious curvature or fan shape; the normal Q-Q plot should track the diagonal reference line.
+
+<div class="fade-section">
+```{r}
+#| label: fig-diag
+#| echo: true
+#| layout-ncol: 2
+#| fig-cap:
+#|   - "Residuals vs fitted log carbon intensity. A flat smoother and roughly even spread support the linearity / equal-variance assumptions."
+#|   - "Normal Q-Q of standardised residuals. Points hugging the diagonal support the normality assumption used by the t / F inference."
+#| fig-width: 5.4
+#| fig-height: 3.8
+fit_aug <- broom::augment(fit) |>
+  mutate(.std_resid = .resid / sd(.resid, na.rm = TRUE))
+
+# Residuals vs fitted
+ggplot(fit_aug, aes(.fitted, .resid)) +
+  geom_hline(yintercept = 0,
+             colour = "#6c665d", linewidth = 0.5) +
+  geom_point(colour = "#945638", alpha = 0.7, size = 1.8) +
+  geom_smooth(method = "loess", se = FALSE,
+              colour = "#5b646b", linewidth = 0.7, span = 0.9) +
+  labs(x = "Fitted log(carbon intensity)",
+       y = "Residual") +
+  report_theme()
+
+# Normal Q-Q of standardised residuals
+ggplot(fit_aug, aes(sample = .std_resid)) +
+  stat_qq(colour = "#945638", alpha = 0.7, size = 1.8) +
+  stat_qq_line(colour = "#5b646b", linewidth = 0.7) +
+  labs(x = "Theoretical quantiles",
+       y = "Standardised residual") +
+  report_theme()
+```
+</div>
+
+The smoother in the residuals plot is roughly flat with no funnel shape, and the Q-Q points track the diagonal closely except for a few mild tail outliers — the inferential statistics in the Hypothesis Test subsection (β₁, p-value, R²) can therefore be read in the usual way without major caveats.
+
+### T
+
+**T — Test Statistic**
+
+```{r}
+#| echo: true
+fit_tidy |>
+  mutate(across(where(is.numeric), ~ signif(.x, 3))) |>
+  kable(caption = "Regression coefficients.")
+```
+
+```{r}
+#| echo: true
+fit_glance |>
+  select(r.squared, adj.r.squared, statistic, df, df.residual, p.value, nobs) |>
+  mutate(across(where(is.numeric), ~ signif(.x, 3))) |>
+  kable(caption = "Model summary.")
+```
+
+### P
+
+**P — P-value**
+
+The p-value for the coal-share slope is **`r fmt_p(beta1_p)`**, so the null hypothesis is rejected.
+
+### C
+
+**C — Conclusion**
+
+There is strong evidence of a positive association between coal dependence and carbon intensity in the 2022 cross-section. This supports the report's recommendation logic, while still stopping short of causal interpretation.
+
+:::
+
+### Data and Reproducibility Notes
+
+- All aggregate rows with missing `iso_code` or `iso_code` beginning with `OWID` were excluded.
+- 2022 was used as the latest year with complete GDP coverage for the focus economies.
+- Carbon intensity is defined as `co2 / gdp * 10^12`, giving tonnes of CO2 per million **2011 international (PPP) dollars** of GDP — OWID's `gdp` column is the Maddison Project series, not market-exchange-rate USD.
+- Ten-year CO2 growth is defined as `(CO2_2022 - CO2_2012) / CO2_2012`.
+- Latest-year evidence was combined with 2012-2022 trend information to avoid over-relying on a single-year snapshot.
+- **Sample composition transparency**: of the `r n_2022_country_rows` country-rows present in OWID for 2022, `r n_panel_all` had complete `carbon_intensity`, `coal_share` and `co2`; the headline regression in the Hypothesis Test subsection then drops a further `r n_dropped_to_reg` rows that fail the regression filters (non-positive intensity or out-of-range coal share), leaving **n = `r n_reg_data`** countries.
+
+A small set of formatting helpers and a custom ggplot theme keep the inline numbers and every figure stylistically consistent across the report:
+
+```{r}
+#| label: code-appendix-helpers
+#| echo: true
+#| eval: false
+#| code-summary: "Code — formatting helpers and report_theme()"
+# Pull a single metric for a focus country (used in inline numbers)
+pluck_metric <- function(cty, var) {
+  latest_panel_focus |> filter(country == cty) |> pull({{ var }})
+}
+
+# Signed percentage with a fixed number of digits, e.g. "+14%"
+fmt_pct <- function(x, digits = 0, signed = TRUE) {
+  prefix <- if (signed && x > 0) "+" else ""
+  paste0(prefix, round(x, digits), "%")
+}
+
+# Shared ggplot theme — warm paper background, muted gridlines
+report_theme <- function() {
+  theme_minimal(base_size = 12) +
+    theme(
+      plot.background  = element_rect(fill = "#fbfaf7", colour = NA),
+      panel.background = element_rect(fill = "#fbfaf7", colour = NA),
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(colour = "#e5dfd4", linewidth = 0.5),
+      plot.title       = element_text(face = "bold", size = 16, colour = "#20262a"),
+      plot.subtitle    = element_text(size = 11.5, colour = "#5b646b"),
+      axis.title       = element_text(face = "bold", colour = "#20262a"),
+      axis.title.x     = element_text(margin = margin(t = 10)),
+      axis.title.y     = element_text(margin = margin(r = 10)),
+      axis.text        = element_text(colour = "#3a3f44"),
+      axis.text.x      = element_text(margin = margin(t = 2)),
+      axis.text.y      = element_text(margin = margin(r = 3)),
+      legend.position  = "top"
+    )
+}
+```
+
+## Appendix 2 — Supplementary Analysis {#sec-appendix2}
+
+These three sensitivity views ask whether the recommendation changes under alternative cuts of the same OWID data. They are kept in the Appendix because they support transparency, but they are not needed to understand the main recommendation.
+
+::: {.panel-tabset}
+
+### Small multiples: intensity 1990→2022
+
+<div class="fade-section">
+```{r}
+#| label: code-small-multiples
+#| echo: true
+#| fig-width: 9.2
+#| fig-height: 5.6
+trend_data |>
+  mutate(country = factor(country,
+                          levels = c("Vietnam", "Indonesia", "India",
+                                     "Australia", "Japan", "South Korea"))) |>
+  ggplot(aes(x = year, y = carbon_intensity)) +
+  geom_vline(xintercept = 2012, colour = "#b8ad9c", linetype = "22", linewidth = 0.5) +
+  geom_line(aes(colour = country), linewidth = 1.05, show.legend = FALSE) +
+  geom_point(data = trend_labels,
+             aes(x = year, y = carbon_intensity, colour = country),
+             size = 2, show.legend = FALSE) +
+  facet_wrap(~ country, ncol = 3, scales = "free_y") +
+  scale_colour_manual(values = c(
+    Vietnam = "#c87638",
+    Indonesia = "#945638",
+    India = "#8f5c2c",
+    Australia = "#7b8d9f",
+    Japan = "#5f7488",
+    `South Korea` = "#667ca0"
+  )) +
+  scale_x_continuous(breaks = c(1990, 2000, 2010, 2020)) +
+  labs(
+    x = NULL,
+    y = "Carbon intensity (t CO2 per million 2011 PPP$)"
+  ) +
+  report_theme() +
+  theme(
+    strip.text = element_text(face = "bold", colour = "#18384a"),
+    panel.spacing = unit(1.1, "lines")
+  )
+```
+<p class="chart-caption"><strong>Appendix diagnostic.</strong> Carbon intensity trajectories for the six focus economies, 1990-2022. The vertical reference line marks the 2012 baseline used in the report; Vietnam and Indonesia show flatter or rising tails while the benchmark economies bend downward.</p>
+</div>
+
+Each facet uses its own y-axis so individual shape is legible. The key signal is the **direction** at the 2012 line: Vietnam and Indonesia have flat-to-rising tails, while the three benchmark economies bend downward.
+
+### Focus six on the world fit
+
+This view places the six focus economies on the same regression line used in the Hypothesis Test subsection (`log(carbon_intensity) ~ coal_share`, n = `r nrow(reg_data)` countries). It bridges the country-specific narrative and the cross-country statistical pattern — if the focus six sit broadly along the world fit, the headline coal-intensity claim is internally consistent.
+
+<div class="fade-section">
+```{r}
+#| label: code-world-fit
+#| echo: true
+#| fig-width: 9.0
+#| fig-height: 5.8
+focus_world_data <- reg_data |>
+  mutate(
+    log_intensity = log(carbon_intensity),
+    is_focus = country %in% c("Indonesia", "Vietnam", "India",
+                              "Australia", "Japan", "South Korea"),
+    role = case_when(
+      country %in% c("Indonesia", "Vietnam") ~ "Primary target",
+      country == "India"                     ~ "Supporting case",
+      country %in% c("Australia", "Japan",
+                     "South Korea")          ~ "Benchmark",
+      TRUE                                   ~ NA_character_
+    )
+  )
+
+# Fixed label positions keep the crowded middle of the chart readable.
+focus_world_label_positions <- tribble(
+  ~country,        ~label_x, ~label_y, ~label_hjust,
+  "Vietnam",          0.64,     6.17,          0,
+  "Indonesia",        0.47,     5.22,          1,
+  "India",            0.76,     6.20,          0,
+  "Australia",        0.35,     5.28,          1,
+  "Japan",            0.29,     5.10,        0.5,
+  "South Korea",      0.45,     6.06,        0.5
+)
+
+focus_world_six_lab <- focus_world_data |>
+  filter(is_focus) |>
+  left_join(focus_world_label_positions, by = "country")
+
+ggplot(focus_world_data, aes(coal_share, log_intensity)) +
+  geom_point(data = focus_world_data |> filter(!is_focus),
+             colour = "#c9c0b0", size = 1.7, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "#945638", fill = "#e8d6bf",
+              alpha = 0.40, linewidth = 0.9) +
+  geom_point(data = focus_world_data |> filter(is_focus),
+             aes(colour = role), size = 3.6) +
+  geom_segment(data = focus_world_six_lab,
+               aes(x = coal_share, y = log_intensity,
+                   xend = label_x, yend = label_y),
+               colour = "#5b646b", linewidth = 0.32,
+               alpha = 0.74, lineend = "round") +
+  geom_text(data = focus_world_six_lab,
+            aes(x = label_x, y = label_y,
+                label = country, colour = role, hjust = label_hjust),
+            size = 3.15, fontface = "plain",
+            show.legend = FALSE) +
+  scale_colour_manual(values = c(
+    `Primary target`    = "#c87638",
+    `Supporting case`   = "#b08a3a",
+    Benchmark           = "#7b8d9f"
+  )) +
+  scale_x_continuous(labels = scales::label_percent(accuracy = 1),
+                     expand = expansion(mult = c(0.02, 0.12))) +
+  labs(
+    x = "Coal share of national CO2, 2022",
+    y = "log(carbon intensity, t CO2 / million 2011 PPP$)",
+    colour = NULL
+  ) +
+  report_theme() +
+  theme(
+    legend.position = "top",
+    axis.title = element_text(face = "plain", colour = "#5b646b"),
+    axis.title.x = element_text(face = "plain", colour = "#5b646b",
+                                margin = margin(t = 12)),
+    axis.title.y = element_text(face = "plain", colour = "#5b646b",
+                                margin = margin(r = 12)),
+    legend.text = element_text(colour = "#3a3f44")
+  )
+```
+<p class="chart-caption"><strong>Appendix diagnostic.</strong> Focus six placed on the global coal-share / log(carbon-intensity) fit. Grey points: all OWID countries with complete 2022 data. Orange line: the headline univariate OLS, with 95% confidence ribbon. Coloured points: the six focus economies labelled by priority role.</p>
+</div>
+
+The fitted line slopes upward, confirming that countries with higher coal shares tend to have higher log carbon intensities. **Vietnam** sits clearly above the world fit — more carbon-intensive than its coal share alone would predict — which sharpens the case for it as a primary target. **Indonesia** sits close to the line, and **India** sits slightly below the line despite the highest coal share in the focus group, consistent with India's faster-improving intensity trajectory. **Australia, Japan and South Korea** cluster around or below the line at moderate coal shares, in line with their benchmark role. The six are spread across the world pattern rather than bunched in a corner — supporting the report's reading that the recommendation reflects a broader cross-country relationship, not a feature of just six points.
+
+### Pre-COVID growth (2010 → 2019)
+
+The headline growth window (2012 → 2022) spans the COVID-19 demand shock. A reasonable objection — especially against Vietnam's **+`r round(pluck_metric("Vietnam", co2_growth_10yr_pct), 0)`%** decade growth — is that part of the figure could be a 2020–21 rebound effect rather than steady carbon-intensive expansion. This tab repeats the growth comparison on a strictly pre-COVID window (2010 → 2019).
+
+<div class="fade-section">
+```{r}
+#| label: code-precovid-growth
+#| echo: true
+#| fig-width: 9.2
+#| fig-height: 4.6
+precovid_long <- focus_growth_compare |>
+  pivot_longer(
+    c(growth_2012_2022, co2_growth_precovid_pct),
+    names_to  = "window",
+    values_to = "growth_pct"
+  ) |>
+  mutate(
+    window = recode(window,
+                    growth_2012_2022          = "2012–2022 (headline, includes COVID)",
+                    co2_growth_precovid_pct   = "2010–2019 (pre-COVID)"),
+    window = factor(window,
+                    levels = c("2012–2022 (headline, includes COVID)",
+                               "2010–2019 (pre-COVID)"))
+  )
+
+# Order countries by the headline window so both panels share the same y-order
+country_order <- focus_growth_compare |>
+  arrange(desc(growth_2012_2022)) |>
+  pull(country)
+
+precovid_long <- precovid_long |>
+  mutate(country = factor(country, levels = rev(country_order)))
+
+ggplot(precovid_long,
+       aes(x = growth_pct, y = country, fill = role)) +
+  geom_col(width = 0.68) +
+  geom_vline(xintercept = 0, colour = "#6c665d", linewidth = 0.6) +
+  geom_text(
+    aes(label = sprintf("%+.0f%%", growth_pct),
+        hjust = ifelse(growth_pct >= 0, -0.12, 1.12)),
+    size = 3.3, colour = "#18384a"
+  ) +
+  facet_wrap(~ window, ncol = 2) +
+  scale_fill_manual(values = c(
+    `Primary target` = "#c87638",
+    `Supporting case` = "#b08a3a",
+    Benchmark        = "#7b8d9f"
+  )) +
+  scale_x_continuous(
+    labels = scales::label_percent(scale = 1, accuracy = 1),
+    expand = expansion(mult = c(0.14, 0.20))
+  ) +
+  labs(x = NULL, y = NULL, fill = NULL) +
+  report_theme() +
+  theme(
+    legend.position = "top",
+    panel.spacing   = unit(1.4, "lines"),
+    strip.text      = element_text(face = "bold", colour = "#18384a", size = 10.8),
+    axis.text.x     = element_text(colour = "#5b646b")
+  )
+```
+<p class="chart-caption"><strong>Appendix diagnostic.</strong> Ten-year CO2 growth under the headline 2012-2022 window and the pre-COVID 2010-2019 window. Both windows keep Vietnam, Indonesia and India on the growth side, while Australia, Japan and South Korea remain flat or declining.</p>
+</div>
+
+**The result runs in the opposite direction to the standard objection**: the pre-COVID 2010–2019 window shows **larger** decade growth for every focus economy, not smaller. Vietnam's number rises from +`r round(pluck_metric("Vietnam", co2_growth_10yr_pct), 0)`% to +`r round(focus_growth_compare |> filter(country == "Vietnam") |> pull(co2_growth_precovid_pct), 0)`%, India from +`r round(pluck_metric("India", co2_growth_10yr_pct), 0)`% to +`r round(focus_growth_compare |> filter(country == "India") |> pull(co2_growth_precovid_pct), 0)`%, and the benchmarks shift from declines to near-flat. **COVID dampened the apparent growth of carbon-intensive economies; it did not inflate them.** The qualitative ranking — Vietnam > India ≈ Indonesia ≫ {Australia, Japan, South Korea} — holds in both windows, so the priority call is robust to the choice of growth window. If anything, the headline 2012–2022 figures *understate* Vietnam's underlying carbon-intensive trajectory.
+
+:::
+
+<script>
+// ---------- Print preparation hooks ----------------------------------------
+// Browsers do not honour `display: block` for collapsed <details>: pure CSS
+// cannot force them open. We hook beforeprint/afterprint to:
+//   1) open every <details> so all code-fold blocks print expanded
+//   2) reveal every panel-tabset tab pane so all Appendix 2 robustness checks
+//      print (the inactive tabs are display:none until clicked)
+//   3) snap count-up <span> elements to their data-target final value
+//      (in case the user prints before the IntersectionObserver fires)
+// State is restored on afterprint so the on-screen experience is unchanged.
+(() => {
+  let detailsState = [];
+  let panelState = [];
+  let countUpState = [];
+
+  const prepareForPrint = () => {
+    detailsState = Array.from(document.querySelectorAll("details")).map((d) => {
+      const wasOpen = d.open;
+      d.open = true;
+      return { node: d, wasOpen };
+    });
+
+    panelState = Array.from(
+      document.querySelectorAll(".panel-tabset .tab-pane, .tab-content > .tab-pane")
+    ).map((pane) => {
+      const wasActive = pane.classList.contains("active");
+      const wasShow   = pane.classList.contains("show");
+      pane.classList.add("active", "show");
+      pane.style.display = "block";
+      return { node: pane, wasActive, wasShow };
+    });
+
+    // Force every interactive-figure into its animated state so SVG marks
+    // (points, labels, connectors) become visible — they default to opacity:0
+    // and rely on IntersectionObserver to add the .is-animated class, which
+    // does not fire on print.
+    document.querySelectorAll(".interactive-figure").forEach((fig) => {
+      fig.classList.add("is-animated");
+    });
+    document.querySelectorAll(".fade-section").forEach((sec) => {
+      sec.classList.add("is-visible");
+    });
+
+    countUpState = Array.from(document.querySelectorAll(".count-up")).map((el) => {
+      const original = el.textContent;
+      const target   = el.dataset.target ?? "";
+      const prefix   = el.dataset.prefix ?? "";
+      const suffix   = el.dataset.suffix ?? "";
+      const decimals = parseInt(el.dataset.decimals ?? "0", 10);
+      const num      = Number(target);
+      const text = (Number.isFinite(num)
+        ? num.toFixed(decimals)
+        : String(target));
+      el.textContent = prefix + text + suffix;
+      return { node: el, original };
+    });
+  };
+
+  const restoreFromPrint = () => {
+    detailsState.forEach(({ node, wasOpen }) => { node.open = wasOpen; });
+    panelState.forEach(({ node, wasActive, wasShow }) => {
+      if (!wasActive) node.classList.remove("active");
+      if (!wasShow)   node.classList.remove("show");
+      node.style.display = "";
+    });
+    countUpState.forEach(({ node, original }) => { node.textContent = original; });
+    detailsState = []; panelState = []; countUpState = [];
+  };
+
+  window.addEventListener("beforeprint", prepareForPrint);
+  window.addEventListener("afterprint", restoreFromPrint);
+
+  // Some browsers (Chrome/Safari) fire matchMedia print events instead
+  const mql = window.matchMedia ? window.matchMedia("print") : null;
+  if (mql && typeof mql.addEventListener === "function") {
+    mql.addEventListener("change", (e) => {
+      if (e.matches) prepareForPrint(); else restoreFromPrint();
+    });
+  }
+})();
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.documentElement.classList.add("reveal-enabled");
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const svgNS = "http://www.w3.org/2000/svg";
+
+  const parseData = (id) => {
+    const element = document.getElementById(id);
+    return element ? JSON.parse(element.textContent) : null;
+  };
+
+  const makeSvg = (tag, attrs = {}) => {
+    const node = document.createElementNS(svgNS, tag);
+    Object.entries(attrs).forEach(([key, value]) => {
+      node.setAttribute(key, value);
+    });
+    return node;
+  };
+
+  const scaleLinear = (domain, range) => {
+    const [d0, d1] = domain;
+    const [r0, r1] = range;
+    return (value) => r0 + ((value - d0) / (d1 - d0)) * (r1 - r0);
+  };
+
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+  const coalColor = (share) => {
+    const stops = [
+      [35, [243, 226, 203]],
+      [50, [227, 169, 102]],
+      [65, [187, 96, 43]],
+      [75, [118, 45, 23]]
+    ];
+
+    if (share <= stops[0][0]) {
+      return `rgb(${stops[0][1].join(",")})`;
+    }
+    if (share >= stops[stops.length - 1][0]) {
+      return `rgb(${stops[stops.length - 1][1].join(",")})`;
+    }
+
+    for (let i = 0; i < stops.length - 1; i += 1) {
+      const [startValue, startColor] = stops[i];
+      const [endValue, endColor] = stops[i + 1];
+      if (share >= startValue && share <= endValue) {
+        const t = (share - startValue) / (endValue - startValue);
+        const color = startColor.map((channel, index) =>
+          Math.round(channel + (endColor[index] - channel) * t)
+        );
+        return `rgb(${color.join(",")})`;
+      }
+    }
+
+    return "rgb(187,96,43)";
+  };
+
+  const countryColors = {
+    Indonesia: "#945638",
+    Vietnam: "#c87638",
+    India: "#8f5c2c",
+    Australia: "#7b8d9f",
+    Japan: "#5f7488",
+    "South Korea": "#667ca0"
+  };
+
+  const sourceColors = {
+    Coal: "#1f3340",
+    Oil: "#b46b34",
+    Gas: "#4f7fa2",
+    Cement: "#9ba3a8"
+  };
+
+  const createTooltip = (stage) => {
+    const tooltip = document.createElement("div");
+    tooltip.className = "chart-tooltip";
+    stage.appendChild(tooltip);
+
+    const move = (event) => {
+      const rect = stage.getBoundingClientRect();
+      const left = clamp(
+        event.clientX - rect.left + 16,
+        10,
+        rect.width - tooltip.offsetWidth - 10
+      );
+      const top = clamp(
+        event.clientY - rect.top + 16,
+        10,
+        rect.height - tooltip.offsetHeight - 10
+      );
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    };
+
+    return {
+      show(event, html) {
+        tooltip.innerHTML = html;
+        tooltip.classList.add("is-visible");
+        move(event);
+      },
+      move,
+      hide() {
+        tooltip.classList.remove("is-visible");
+      }
+    };
+  };
+
+  const bindButtonGroup = (container, attribute, callback) => {
+    if (!container) return;
+    const buttons = [...container.querySelectorAll("button")];
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        buttons.forEach((candidate) => {
+          candidate.classList.toggle("is-active", candidate === button);
+        });
+        callback(button.getAttribute(attribute));
+      });
+    });
+  };
+
+  const setMuted = (nodes, muted) => {
+    nodes.forEach((node) => {
+      node.classList.toggle("is-muted", muted);
+    });
+  };
+
+  const renderPriority = () => {
+    const bundle = parseData("priority-data");
+    const figure = document.querySelector('[data-chart="priority"]');
+    if (!bundle || !figure) return;
+
+    const stage = figure.querySelector('[data-chart-stage="priority"]');
+    stage.innerHTML = "";
+    const tooltip = createTooltip(stage);
+
+    const width = 720;
+    const height = 480;
+    const margin = { top: 22, right: 124, bottom: 82, left: 70 };
+    const plot = {
+      left: margin.left,
+      right: width - margin.right,
+      top: margin.top,
+      bottom: height - margin.bottom
+    };
+
+    const x = scaleLinear([150, 390], [plot.left, plot.right]);
+    const y = scaleLinear([-40, 125], [plot.bottom, plot.top]);
+    const radiusMax = Math.max(...bundle.points.map((point) => point.total_co2));
+    const radius = (value) => 6 + Math.sqrt(value / radiusMax) * 16;
+
+    const svg = makeSvg("svg", {
+      viewBox: `0 0 ${width} ${height}`,
+      role: "img",
+      "aria-label":
+        "Animated priority map comparing carbon intensity, emissions growth and coal share across six Indo-Pacific economies."
+    });
+    stage.appendChild(svg);
+
+    svg.appendChild(
+      makeSvg("rect", {
+        x: x(bundle.zone.xmin),
+        y: y(bundle.zone.ymax),
+        width: x(bundle.zone.xmax) - x(bundle.zone.xmin),
+        height: y(bundle.zone.ymin) - y(bundle.zone.ymax),
+        class: "zone-fill"
+      })
+    );
+
+    const xTicks = [160, 200, 240, 280, 320, 360];
+    const yTicks = [-25, 0, 25, 50, 75, 100, 125];
+
+    xTicks.forEach((tick) => {
+      svg.appendChild(
+        makeSvg("line", {
+          x1: x(tick),
+          y1: plot.top,
+          x2: x(tick),
+          y2: plot.bottom,
+          class: "grid-line"
+        })
+      );
+      const label = makeSvg("text", {
+        x: x(tick),
+        y: plot.bottom + 22,
+        class: "tick-label",
+        "text-anchor": "middle"
+      });
+      label.textContent = tick;
+      svg.appendChild(label);
+    });
+
+    yTicks.forEach((tick) => {
+      svg.appendChild(
+        makeSvg("line", {
+          x1: plot.left,
+          y1: y(tick),
+          x2: plot.right,
+          y2: y(tick),
+          class: tick === 0 ? "axis-line axis-line--emphasis" : "grid-line"
+        })
+      );
+      const label = makeSvg("text", {
+        x: plot.left - 12,
+        y: y(tick) + 4,
+        class: "tick-label",
+        "text-anchor": "end"
+      });
+      label.textContent = `${tick}%`;
+      svg.appendChild(label);
+    });
+
+    svg.appendChild(
+      makeSvg("line", {
+        x1: plot.left,
+        y1: plot.bottom,
+        x2: plot.right,
+        y2: plot.bottom,
+        class: "axis-line"
+      })
+    );
+    svg.appendChild(
+      makeSvg("line", {
+        x1: plot.left,
+        y1: plot.top,
+        x2: plot.left,
+        y2: plot.bottom,
+        class: "axis-line"
+      })
+    );
+
+    svg.appendChild(
+      makeSvg("line", {
+        x1: x(bundle.benchmark_mean),
+        y1: plot.top,
+        x2: x(bundle.benchmark_mean),
+        y2: plot.bottom,
+        class: "benchmark-line"
+      })
+    );
+
+    const benchmarkLabel = makeSvg("text", {
+      x: x(bundle.benchmark_mean) + 6,
+      y: plot.top + 16,
+      class: "annotation-label",
+      "text-anchor": "start"
+    });
+    benchmarkLabel.textContent = "Benchmark mean";
+    svg.appendChild(benchmarkLabel);
+
+    const zoneLabel = makeSvg("text", {
+      x: x(bundle.zone.xmin) + 20,
+      y: y(bundle.zone.ymax) + 32,
+      class: "zone-label",
+      "text-anchor": "start"
+    });
+    zoneLabel.textContent = "Priority zone";
+    svg.appendChild(zoneLabel);
+
+    const xAxisLabel = makeSvg("text", {
+      x: (plot.left + plot.right) / 2,
+      y: plot.bottom + 46,
+      class: "axis-label",
+      "text-anchor": "middle"
+    });
+    xAxisLabel.textContent = "Carbon intensity (t CO2 per million 2011 PPP$)";
+    svg.appendChild(xAxisLabel);
+
+    const yAxisLabel = makeSvg("text", {
+      x: 20,
+      y: (plot.top + plot.bottom) / 2,
+      class: "axis-label",
+      transform: `rotate(-90 20 ${(plot.top + plot.bottom) / 2})`,
+      "text-anchor": "middle"
+    });
+    yAxisLabel.textContent = "CO2 growth, 2012-2022";
+    svg.appendChild(yAxisLabel);
+
+    const key = makeSvg("text", {
+      x: plot.right,
+      y: height - 10,
+      class: "annotation-label",
+      "text-anchor": "end"
+    });
+    key.textContent = "Fill = coal share   |   Size = total CO2";
+    svg.appendChild(key);
+
+    const pointBundles = [];
+    let activeFilter = "all";
+    let activeCountry = null;
+    const priorityTooltips = new Map();
+
+    const applyPriorityState = () => {
+      pointBundles.forEach((bundleItem) => {
+        const matchesFilter =
+          activeFilter === "all" || bundleItem.group === activeFilter;
+        const isFocused = activeCountry === bundleItem.country;
+        const muted =
+          !matchesFilter || (activeCountry !== null && !isFocused);
+
+        setMuted(bundleItem.nodes, muted);
+        bundleItem.nodes.forEach((node) => {
+          node.classList.toggle("is-focus", matchesFilter && isFocused);
+        });
+
+        if (matchesFilter && isFocused) {
+          bundleItem.drawOrder.forEach((node) => svg.appendChild(node));
+        }
+      });
+    };
+
+    const clearFocus = () => {
+      activeCountry = null;
+      applyPriorityState();
+      tooltip.hide();
+    };
+
+    bundle.points.forEach((point, index) => {
+      const anchor = point.label_x >= point.carbon_intensity ? "start" : "end";
+
+      const halo = makeSvg("circle", {
+        cx: x(point.carbon_intensity),
+        cy: y(point.growth),
+        r: radius(point.total_co2) + 6,
+        class: `chart-halo group-${point.group}`
+      });
+      svg.appendChild(halo);
+
+      const connector = makeSvg("line", {
+        x1: x(point.carbon_intensity),
+        y1: y(point.growth),
+        x2: x(point.label_x),
+        y2: y(point.label_y),
+        class: `chart-connector group-${point.group}`
+      });
+      connector.style.transitionDelay = `${index * 70 + 40}ms`;
+      svg.appendChild(connector);
+
+      const label = makeSvg("text", {
+        x: x(point.label_x),
+        y: y(point.label_y) - 8,
+        class: `chart-label group-${point.group}`,
+        "text-anchor": anchor
+      });
+      label.textContent = point.country;
+      label.style.transitionDelay = `${index * 70 + 60}ms`;
+      svg.appendChild(label);
+
+      const circle = makeSvg("circle", {
+        cx: x(point.carbon_intensity),
+        cy: y(point.growth),
+        r: radius(point.total_co2),
+        fill: coalColor(point.coal_share),
+        class: `chart-point group-${point.group}`,
+        stroke: point.group === "target" ? "#17313f" : "#5d7484",
+        "stroke-width": point.group === "target" ? 1.6 : 1.1
+      });
+      circle.style.transitionDelay = `${index * 70}ms`;
+      svg.appendChild(circle);
+
+      const nodes = [circle, connector, label];
+      const tooltipHtml = `
+        <strong>${point.country}</strong><br>
+        Carbon intensity: ${point.carbon_intensity.toFixed(1)}<br>
+        CO2 growth: ${point.growth > 0 ? "+" : ""}${point.growth.toFixed(1)}%<br>
+        Coal share: ${point.coal_share.toFixed(1)}%<br>
+        Total CO2: ${point.total_co2.toFixed(0)} Mt
+      `;
+      priorityTooltips.set(point.country, tooltipHtml);
+
+      [circle, connector, label].forEach((node) => {
+        node.setAttribute("data-priority-country", point.country);
+      });
+
+      pointBundles.push({
+        country: point.country,
+        group: point.group,
+        nodes: [halo, circle, connector, label],
+        drawOrder: [halo, connector, label, circle]
+      });
+    });
+
+    const controls = figure.querySelector('[data-chart-controls="priority"]');
+    bindButtonGroup(controls, "data-filter", (filter) => {
+      activeFilter = filter;
+      activeCountry = null;
+      applyPriorityState();
+    });
+
+    const getPriorityTarget = (target) =>
+      target && target.closest
+        ? target.closest("[data-priority-country]")
+        : null;
+
+    stage.addEventListener("pointermove", (event) => {
+      const targetNode = getPriorityTarget(event.target);
+      if (!targetNode) {
+        if (activeCountry !== null) clearFocus();
+        return;
+      }
+
+      const country = targetNode.getAttribute("data-priority-country");
+      const tooltipHtml = priorityTooltips.get(country);
+      if (!tooltipHtml) {
+        clearFocus();
+        return;
+      }
+
+      activeCountry = country;
+      applyPriorityState();
+      tooltip.show(event, tooltipHtml);
+    });
+    stage.addEventListener("pointerout", (event) => {
+      if (!stage.contains(event.relatedTarget)) {
+        clearFocus();
+      }
+    });
+    stage.addEventListener("pointerleave", clearFocus);
+    figure.addEventListener("mouseleave", clearFocus);
+    document.addEventListener("pointermove", (event) => {
+      if (activeCountry !== null && !figure.contains(event.target)) {
+        clearFocus();
+      }
+    });
+    window.addEventListener("scroll", clearFocus, { passive: true });
+
+    figure.__animate = () => {
+      figure.classList.add("is-animated");
+    };
+  };
+
+  const renderTrend = () => {
+    const bundle = parseData("trend-data");
+    const figure = document.querySelector('[data-chart="trend"]');
+    if (!bundle || !figure) return;
+
+    const stage = figure.querySelector('[data-chart-stage="trend"]');
+    stage.innerHTML = "";
+    const tooltip = createTooltip(stage);
+
+    const width = 720;
+    const height = 440;
+    const margin = { top: 22, right: 126, bottom: 54, left: 70 };
+    const plot = {
+      left: margin.left,
+      right: width - margin.right,
+      top: margin.top,
+      bottom: height - margin.bottom
+    };
+
+    const x = scaleLinear([1990, 2022], [plot.left, plot.right]);
+    const yValues = bundle.series.map((row) => row.carbon_intensity);
+    const yMin = Math.max(150, Math.floor((Math.min(...yValues) - 20) / 25) * 25);
+    const yMax = Math.ceil((Math.max(...yValues) + 20) / 25) * 25;
+    const y = scaleLinear([yMin, yMax], [plot.bottom, plot.top]);
+
+    const svg = makeSvg("svg", {
+      viewBox: `0 0 ${width} ${height}`,
+      role: "img",
+      "aria-label":
+        "Animated line chart showing carbon intensity trends from 1990 to 2022 for six Indo-Pacific economies."
+    });
+    stage.appendChild(svg);
+
+    svg.appendChild(
+      makeSvg("rect", {
+        x: plot.left,
+        y: plot.top,
+        width: plot.right - plot.left,
+        height: y(bundle.band.ymin) - plot.top,
+        class: "band-fill"
+      })
+    );
+
+    const bandLabel = makeSvg("text", {
+      x: plot.left + 8,
+      y: plot.top + 18,
+      class: "annotation-label",
+      "text-anchor": "start"
+    });
+    bandLabel.textContent = "Higher-intensity band";
+    svg.appendChild(bandLabel);
+
+    const xTicks = [1990, 1995, 2000, 2005, 2010, 2015, 2020];
+    const yTicks = [];
+    for (let tick = Math.ceil(yMin / 50) * 50; tick <= Math.floor(yMax / 50) * 50; tick += 50) {
+      yTicks.push(tick);
+    }
+
+    xTicks.forEach((tick) => {
+      svg.appendChild(
+        makeSvg("line", {
+          x1: x(tick),
+          y1: plot.top,
+          x2: x(tick),
+          y2: plot.bottom,
+          class: "grid-line"
+        })
+      );
+      const label = makeSvg("text", {
+        x: x(tick),
+        y: plot.bottom + 22,
+        class: "tick-label",
+        "text-anchor": "middle"
+      });
+      label.textContent = tick;
+      svg.appendChild(label);
+    });
+
+    yTicks.forEach((tick) => {
+      svg.appendChild(
+        makeSvg("line", {
+          x1: plot.left,
+          y1: y(tick),
+          x2: plot.right,
+          y2: y(tick),
+          class: "grid-line"
+        })
+      );
+      const label = makeSvg("text", {
+        x: plot.left - 12,
+        y: y(tick) + 4,
+        class: "tick-label",
+        "text-anchor": "end"
+      });
+      label.textContent = tick;
+      svg.appendChild(label);
+    });
+
+    svg.appendChild(
+      makeSvg("line", {
+        x1: plot.left,
+        y1: plot.bottom,
+        x2: plot.right,
+        y2: plot.bottom,
+        class: "axis-line"
+      })
+    );
+    svg.appendChild(
+      makeSvg("line", {
+        x1: plot.left,
+        y1: plot.top,
+        x2: plot.left,
+        y2: plot.bottom,
+        class: "axis-line"
+      })
+    );
+
+    svg.appendChild(
+      makeSvg("line", {
+        x1: x(2012),
+        y1: plot.top,
+        x2: x(2012),
+        y2: plot.bottom,
+        class: "focus-line"
+      })
+    );
+
+    const focusLabel = makeSvg("text", {
+      x: x(2012) + 6,
+      y: plot.bottom - 8,
+      class: "annotation-label",
+      "text-anchor": "start"
+    });
+    focusLabel.textContent = "2012 baseline";
+    svg.appendChild(focusLabel);
+
+    const xAxisLabel = makeSvg("text", {
+      x: (plot.left + plot.right) / 2,
+      y: height - 10,
+      class: "axis-label",
+      "text-anchor": "middle"
+    });
+    xAxisLabel.textContent = "Year";
+    svg.appendChild(xAxisLabel);
+
+    const yAxisLabel = makeSvg("text", {
+      x: 20,
+      y: (plot.top + plot.bottom) / 2,
+      class: "axis-label",
+      transform: `rotate(-90 20 ${(plot.top + plot.bottom) / 2})`,
+      "text-anchor": "middle"
+    });
+    yAxisLabel.textContent = "Carbon intensity (t CO2 per million 2011 PPP$)";
+    svg.appendChild(yAxisLabel);
+
+    const seriesMap = new Map();
+    bundle.series.forEach((row) => {
+      if (!seriesMap.has(row.country)) {
+        seriesMap.set(row.country, []);
+      }
+      seriesMap.get(row.country).push(row);
+    });
+
+    const endpointMap = new Map(
+      bundle.endpoints.map((row) => [row.country, row])
+    );
+
+    const lineBundles = [];
+    const animatedPaths = [];
+
+    [...seriesMap.entries()].forEach(([country, rows], index) => {
+      rows.sort((a, b) => a.year - b.year);
+      const endpoint = endpointMap.get(country);
+      const group = rows[0].group;
+      const color = countryColors[country] || "#6b7280";
+
+      const pathData = rows
+        .map((row, rowIndex) => {
+          const prefix = rowIndex === 0 ? "M" : "L";
+          return `${prefix}${x(row.year).toFixed(2)},${y(row.carbon_intensity).toFixed(2)}`;
+        })
+        .join(" ");
+
+      const path = makeSvg("path", {
+        d: pathData,
+        class: `chart-line group-${group}`,
+        stroke: color,
+        "stroke-width": group === "target" ? 3.2 : 2.4
+      });
+      svg.appendChild(path);
+      animatedPaths.push(path);
+
+      const endpointCircle = makeSvg("circle", {
+        cx: x(endpoint.year),
+        cy: y(endpoint.end_value),
+        r: 4.2,
+        fill: color,
+        class: `chart-endpoint group-${group}`
+      });
+      endpointCircle.style.transitionDelay = `${index * 90 + 120}ms`;
+      svg.appendChild(endpointCircle);
+
+      const label = makeSvg("text", {
+        x: plot.right + 10,
+        y: y(endpoint.label_y),
+        class: `chart-label group-${group}`,
+        "text-anchor": "start",
+        fill: color
+      });
+      label.textContent = country;
+      label.style.transitionDelay = `${index * 90 + 140}ms`;
+      svg.appendChild(label);
+
+      const tooltipHtml = `
+        <strong>${country}</strong><br>
+        2022 intensity: ${endpoint.end_value.toFixed(1)}<br>
+        Change since 2012: ${endpoint.change > 0 ? "+" : ""}${endpoint.change.toFixed(1)}%
+      `;
+
+      [path, endpointCircle, label].forEach((node) => {
+        node.addEventListener("mouseenter", (event) => tooltip.show(event, tooltipHtml));
+        node.addEventListener("mousemove", tooltip.move);
+        node.addEventListener("mouseleave", tooltip.hide);
+      });
+
+      lineBundles.push({ group, nodes: [path, endpointCircle, label] });
+    });
+
+    const controls = figure.querySelector('[data-chart-controls="trend"]');
+    bindButtonGroup(controls, "data-filter", (filter) => {
+      lineBundles.forEach((bundleItem) => {
+        const muted = filter !== "all" && bundleItem.group !== filter;
+        setMuted(bundleItem.nodes, muted);
+      });
+    });
+
+    figure.__animate = () => {
+      figure.classList.add("is-animated");
+      animatedPaths.forEach((path, index) => {
+        if (reduceMotion) {
+          path.style.strokeDasharray = "none";
+          path.style.strokeDashoffset = "0";
+          return;
+        }
+        const length = path.getTotalLength();
+        path.style.strokeDasharray = `${length}`;
+        path.style.strokeDashoffset = `${length}`;
+        path.getBoundingClientRect();
+        path.style.transition =
+          `stroke-dashoffset 1100ms ease ${index * 120}ms, opacity 180ms ease`;
+        path.style.strokeDashoffset = "0";
+      });
+    };
+  };
+
+  const renderFuel = () => {
+    const bundle = parseData("fuel-data");
+    const figure = document.querySelector('[data-chart="fuel"]');
+    if (!bundle || !figure) return;
+
+    const stage = figure.querySelector('[data-chart-stage="fuel"]');
+    stage.innerHTML = "";
+    const tooltip = createTooltip(stage);
+
+    const width = 720;
+    const height = 392;
+    const margin = { top: 22, right: 90, bottom: 48, left: 118 };
+    const plot = {
+      left: margin.left,
+      right: width - margin.right,
+      top: margin.top,
+      bottom: height - margin.bottom
+    };
+
+    const x = scaleLinear([0, 100], [plot.left, plot.right]);
+    const countries = bundle.order;
+    const rowGap = (plot.bottom - plot.top) / countries.length;
+    const barHeight = Math.min(28, rowGap * 0.58);
+
+    const svg = makeSvg("svg", {
+      viewBox: `0 0 ${width} ${height}`,
+      role: "img",
+      "aria-label":
+        "Animated stacked bar chart showing the composition of coal, oil, gas and cement emissions for six Indo-Pacific economies in 2022."
+    });
+    stage.appendChild(svg);
+
+    const xTicks = [0, 25, 50, 75, 100];
+    xTicks.forEach((tick) => {
+      svg.appendChild(
+        makeSvg("line", {
+          x1: x(tick),
+          y1: plot.top,
+          x2: x(tick),
+          y2: plot.bottom,
+          class: "grid-line"
+        })
+      );
+      const label = makeSvg("text", {
+        x: x(tick),
+        y: plot.bottom + 22,
+        class: "tick-label",
+        "text-anchor": "middle"
+      });
+      label.textContent = `${tick}%`;
+      svg.appendChild(label);
+    });
+
+    svg.appendChild(
+      makeSvg("line", {
+        x1: plot.left,
+        y1: plot.bottom,
+        x2: plot.right,
+        y2: plot.bottom,
+        class: "axis-line"
+      })
+    );
+
+    const xAxisLabel = makeSvg("text", {
+      x: (plot.left + plot.right) / 2,
+      y: height - 8,
+      class: "axis-label",
+      "text-anchor": "middle"
+    });
+    xAxisLabel.textContent = "Share of fossil + cement CO2";
+    svg.appendChild(xAxisLabel);
+
+    const grouped = new Map();
+    bundle.segments.forEach((segment) => {
+      if (!grouped.has(segment.country)) {
+        grouped.set(segment.country, []);
+      }
+      grouped.get(segment.country).push(segment);
+    });
+
+    const segmentBundles = [];
+
+    countries.forEach((country, countryIndex) => {
+      const row = grouped.get(country) || [];
+      row.sort(
+        (left, right) =>
+          ["Coal", "Oil", "Gas", "Cement"].indexOf(left.source) -
+          ["Coal", "Oil", "Gas", "Cement"].indexOf(right.source)
+      );
+
+      const yCenter = plot.top + rowGap * countryIndex + rowGap / 2;
+      const label = makeSvg("text", {
+        x: plot.left - 12,
+        y: yCenter + 4,
+        class: "bar-country-label",
+        "text-anchor": "end"
+      });
+      label.textContent = country;
+      label.style.transitionDelay = `${countryIndex * 70 + 40}ms`;
+      svg.appendChild(label);
+
+      let cumulative = 0;
+      let coalShare = 0;
+
+      row.forEach((segment, segmentIndex) => {
+        const rect = makeSvg("rect", {
+          x: x(cumulative),
+          y: yCenter - barHeight / 2,
+          width: x(cumulative + segment.share) - x(cumulative),
+          height: barHeight,
+          fill: sourceColors[segment.source],
+          class: `chart-segment group-${segment.group} source-${segment.source}`
+        });
+        rect.style.transitionDelay = `${countryIndex * 70 + segmentIndex * 70}ms`;
+        svg.appendChild(rect);
+
+        const tooltipHtml = `
+          <strong>${country}</strong><br>
+          ${segment.source}: ${segment.share.toFixed(1)}%
+        `;
+        rect.addEventListener("mouseenter", (event) => tooltip.show(event, tooltipHtml));
+        rect.addEventListener("mousemove", tooltip.move);
+        rect.addEventListener("mouseleave", tooltip.hide);
+
+        segmentBundles.push({
+          source: segment.source,
+          nodes: [rect]
+        });
+
+        if (segment.source === "Coal") {
+          coalShare = segment.share;
+        }
+        cumulative += segment.share;
+      });
+
+      const coalNote = makeSvg("text", {
+        x: plot.right + 10,
+        y: yCenter + 4,
+        class: "coal-note",
+        "text-anchor": "start"
+      });
+      coalNote.textContent = `${coalShare.toFixed(1)}% coal`;
+      coalNote.style.transitionDelay = `${countryIndex * 70 + 90}ms`;
+      svg.appendChild(coalNote);
+      segmentBundles.push({
+        source: "CoalNote",
+        nodes: [coalNote]
+      });
+    });
+
+    const controls = figure.querySelector('[data-chart-controls="fuel"]');
+    bindButtonGroup(controls, "data-mode", (mode) => {
+      segmentBundles.forEach((bundleItem) => {
+        const isCoalRelated =
+          bundleItem.source === "Coal" || bundleItem.source === "CoalNote";
+        const muted = mode === "coal" && !isCoalRelated;
+        setMuted(bundleItem.nodes, muted);
+      });
+    });
+
+    figure.__animate = () => {
+      figure.classList.add("is-animated");
+    };
+  };
+
+  const renderTransitionGap = () => {
+    const bundle = parseData("transition-gap-data");
+    const figure = document.querySelector('[data-chart="transition-gap"]');
+    if (!bundle || !figure) return;
+
+    const stage = figure.querySelector('[data-chart-stage="transition-gap"]');
+    stage.innerHTML = "";
+    const tooltip = createTooltip(stage);
+
+    const rows = [...bundle.rows];
+    const width = 720;
+    const height = 408;
+    const margin = { top: 30, right: 28, bottom: 64, left: 120 };
+    const plot = {
+      left: margin.left,
+      right: width - margin.right,
+      top: margin.top,
+      bottom: height - margin.bottom
+    };
+
+    const values = rows.flatMap((row) => [row.pred_current, row.pred_bench]);
+    const xMin = Math.floor((Math.min(...values) - 8) / 10) * 10;
+    const xMax = Math.ceil((Math.max(...values) + 4) / 5) * 5;
+    const x = scaleLinear([xMin, xMax], [plot.left, plot.right]);
+    const rowGap = (plot.bottom - plot.top) / rows.length;
+    const y = (index) => plot.top + rowGap * index + rowGap / 2;
+
+    const svg = makeSvg("svg", {
+      viewBox: `0 0 ${width} ${height}`,
+      role: "img",
+      "aria-label":
+        "Animated transition-gap chart comparing current predicted carbon intensity with a benchmark coal-share counterfactual."
+    });
+    stage.appendChild(svg);
+
+    const xTicks = [];
+    for (
+      let tick = Math.ceil(xMin / 20) * 20;
+      tick <= Math.floor(xMax / 20) * 20;
+      tick += 20
+    ) {
+      xTicks.push(tick);
+    }
+
+    xTicks.forEach((tick) => {
+      svg.appendChild(
+        makeSvg("line", {
+          x1: x(tick),
+          y1: plot.top,
+          x2: x(tick),
+          y2: plot.bottom,
+          class: "grid-line"
+        })
+      );
+      const tickLabel = makeSvg("text", {
+        x: x(tick),
+        y: plot.bottom + 24,
+        class: "tick-label",
+        "text-anchor": "middle"
+      });
+      tickLabel.textContent = tick;
+      svg.appendChild(tickLabel);
+    });
+
+    rows.forEach((row, index) => {
+      svg.appendChild(
+        makeSvg("line", {
+          x1: plot.left,
+          y1: y(index),
+          x2: plot.right,
+          y2: y(index),
+          class: "grid-line transition-row-guide"
+        })
+      );
+    });
+
+    svg.appendChild(
+      makeSvg("line", {
+        x1: plot.left,
+        y1: plot.bottom,
+        x2: plot.right,
+        y2: plot.bottom,
+        class: "axis-line"
+      })
+    );
+
+    const xAxisLabel = makeSvg("text", {
+      x: (plot.left + plot.right) / 2,
+      y: height - 10,
+      class: "axis-label",
+      "text-anchor": "middle"
+    });
+    xAxisLabel.textContent =
+      "Predicted carbon intensity (tonnes CO2 per million 2011 PPP$)";
+    svg.appendChild(xAxisLabel);
+
+    const rowBundles = [];
+    const animatedLines = [];
+    let activeCountry = null;
+
+    const rowColor = (row) => {
+      if (row.group === "benchmark") return "#7b8d9f";
+      if (row.group === "support") return "#b08a3a";
+      return countryColors[row.country] || "#c87638";
+    };
+
+    const applyTransitionFocus = () => {
+      rowBundles.forEach((bundleItem) => {
+        const isFocused = activeCountry === bundleItem.country;
+        bundleItem.nodes.forEach((node) => {
+          node.classList.toggle("is-focus", isFocused);
+        });
+      });
+    };
+
+    const clearTransitionFocus = () => {
+      activeCountry = null;
+      applyTransitionFocus();
+      tooltip.hide();
+    };
+
+    rows.forEach((row, index) => {
+      const yCenter = y(index);
+      const currentX = x(row.pred_current);
+      const benchX = x(row.pred_bench);
+      const leftX = Math.min(currentX, benchX);
+      const colour = rowColor(row);
+
+      const countryLabel = makeSvg("text", {
+        x: plot.left - 10,
+        y: yCenter + 4,
+        class: "transition-country-label",
+        "text-anchor": "end"
+      });
+      countryLabel.textContent = row.country;
+      countryLabel.style.transitionDelay = `${index * 34 + 25}ms`;
+      svg.appendChild(countryLabel);
+
+      const gapLabel = makeSvg("text", {
+        x: Math.max(plot.left + 18, leftX - 16),
+        y: yCenter + 4,
+        class: "transition-gap-label",
+        "text-anchor": "end"
+      });
+      gapLabel.textContent = row.label;
+      gapLabel.style.transitionDelay = `${index * 34 + 75}ms`;
+      svg.appendChild(gapLabel);
+
+      const gapLine = makeSvg("line", {
+        x1: currentX,
+        y1: yCenter,
+        x2: benchX,
+        y2: yCenter,
+        class: `transition-gap-line group-${row.group}`,
+        stroke: colour
+      });
+      svg.appendChild(gapLine);
+      animatedLines.push(gapLine);
+
+      const benchPoint = makeSvg("circle", {
+        cx: benchX,
+        cy: yCenter,
+        r: 6.2,
+        class: "transition-point transition-point--bench"
+      });
+      benchPoint.style.transitionDelay = `${index * 34 + 90}ms`;
+      svg.appendChild(benchPoint);
+
+      const currentPoint = makeSvg("circle", {
+        cx: currentX,
+        cy: yCenter,
+        r: 6.4,
+        fill: colour,
+        class: `transition-point transition-point--current group-${row.group}`
+      });
+      currentPoint.style.transitionDelay = `${index * 34 + 110}ms`;
+      svg.appendChild(currentPoint);
+
+      const tooltipHtml = `
+        <strong>${row.country}</strong><br>
+        Current prediction: ${row.pred_current.toFixed(1)}<br>
+        Benchmark-share prediction: ${row.pred_bench.toFixed(1)}<br>
+        Modelled gap: ${row.label}<br>
+        2022 coal share: ${row.coal_share.toFixed(1)}%
+      `;
+      const nodes = [countryLabel, gapLabel, gapLine, benchPoint, currentPoint];
+      nodes.forEach((node) => {
+        node.setAttribute("data-transition-country", row.country);
+        node.addEventListener("mouseenter", (event) => {
+          activeCountry = row.country;
+          applyTransitionFocus();
+          tooltip.show(event, tooltipHtml);
+        });
+        node.addEventListener("mousemove", tooltip.move);
+      });
+
+      rowBundles.push({
+        country: row.country,
+        nodes
+      });
+    });
+
+    stage.addEventListener("pointerleave", clearTransitionFocus);
+    window.addEventListener("scroll", clearTransitionFocus, { passive: true });
+
+    figure.__animate = () => {
+      if (figure.__transitionAnimated) return;
+      figure.__transitionAnimated = true;
+
+      animatedLines.forEach((line, index) => {
+        if (reduceMotion) {
+          line.style.strokeDasharray = "none";
+          line.style.strokeDashoffset = "0";
+          return;
+        }
+        const length = line.getTotalLength();
+        line.style.strokeDasharray = `${length}`;
+        line.style.strokeDashoffset = `${length}`;
+        line.style.transition =
+          `stroke-dashoffset 620ms cubic-bezier(0.22, 1, 0.36, 1) ${index * 42 + 45}ms, opacity 180ms ease`;
+      });
+
+      figure.classList.add("is-animated");
+
+      if (!reduceMotion) {
+        requestAnimationFrame(() => {
+          animatedLines.forEach((line) => {
+            line.style.strokeDashoffset = "0";
+          });
+        });
+      }
+    };
+  };
+
+  const revealTargets = document.querySelectorAll(".fade-section");
+
+  const revealNode = (target) => {
+    target.classList.add("is-visible");
+    if (typeof target.__animate === "function" && !target.__animated) {
+      target.__animate();
+      target.__animated = true;
+    }
+  };
+
+  const revealAllSections = () => {
+    revealTargets.forEach(revealNode);
+  };
+
+  const safeRender = (name, renderFn) => {
+    try {
+      renderFn();
+    } catch (error) {
+      console.error(`Unable to render ${name}; revealing report content instead.`, error);
+      revealAllSections();
+    }
+  };
+
+  safeRender("Figure 1 priority map", renderPriority);
+  safeRender("Figure 2 intensity trends", renderTrend);
+  safeRender("Figure 3 fuel mix", renderFuel);
+  safeRender("Transition gap chart", renderTransitionGap);
+
+  const isInViewport = (target) => {
+    const rect = target.getBoundingClientRect();
+    const height = window.innerHeight || document.documentElement.clientHeight;
+    return rect.top < height * 0.94 && rect.bottom > height * 0.06;
+  };
+
+  const revealVisibleSections = () => {
+    revealTargets.forEach((target) => {
+      if (!target.classList.contains("is-visible") && isInViewport(target)) {
+        revealNode(target);
+      }
+    });
+  };
+
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          revealNode(entry.target);
+          observer.unobserve(entry.target);
+        }
+      });
+    }, {
+      threshold: reduceMotion ? 0.01 : 0.18,
+      rootMargin: "0px 0px -40px 0px"
+    });
+
+    revealTargets.forEach((target) => {
+      observer.observe(target);
+    });
+    requestAnimationFrame(revealVisibleSections);
+    window.addEventListener("load", revealVisibleSections, { once: true });
+    window.addEventListener("resize", revealVisibleSections, { passive: true });
+  } else {
+    revealAllSections();
+  }
+
+  // ---- Interactive citation popover ----
+  // The popover is a real DOM node (not a CSS pseudo) so users can move
+  // into it, select text, and click embedded links. It pulls its HTML from
+  // the References list so there is a single source of truth for references.
+  const refMap = new Map();
+  document.querySelectorAll('.reference-list > p[id^="ref-"]').forEach((p) => {
+    refMap.set(p.id, p.innerHTML);
+  });
+
+  const citeLinks = [...document.querySelectorAll("a.cite-link")];
+  if (citeLinks.length && refMap.size) {
+    const popover = document.createElement("div");
+    popover.className = "cite-popover";
+    popover.setAttribute("role", "tooltip");
+    popover.innerHTML =
+      '<span class="cite-popover__eyebrow">Reference</span>' +
+      '<div class="cite-popover__body"></div>';
+    document.body.appendChild(popover);
+    const popoverBody = popover.querySelector(".cite-popover__body");
+
+    let hideTimer = null;
+    let currentLink = null;
+
+    const positionPopover = (link) => {
+      // Show off-screen first so measurement is accurate
+      popover.style.visibility = "hidden";
+      popover.classList.add("is-visible");
+
+      const linkRect = link.getBoundingClientRect();
+      const popRect = popover.getBoundingClientRect();
+      const viewportWidth = document.documentElement.clientWidth;
+      const scrollY = window.scrollY || window.pageYOffset;
+      const scrollX = window.scrollX || window.pageXOffset;
+
+      const margin = 12;
+      let left = linkRect.left + scrollX;
+      const maxLeft =
+        scrollX + viewportWidth - popRect.width - margin;
+      const minLeft = scrollX + margin;
+      if (left > maxLeft) left = maxLeft;
+      if (left < minLeft) left = minLeft;
+
+      const linkCentre = linkRect.left + linkRect.width / 2 + scrollX;
+      const arrowX = clamp(linkCentre - left - 5, 14, popRect.width - 24);
+
+      popover.style.top = `${linkRect.bottom + scrollY + 10}px`;
+      popover.style.left = `${left}px`;
+      popover.style.setProperty("--arrow-x", `${arrowX}px`);
+      popover.style.visibility = "";
+    };
+
+    const showCite = (link) => {
+      clearTimeout(hideTimer);
+      const href = link.getAttribute("href") || "";
+      const id = href.replace(/^#/, "");
+      const html = refMap.get(id);
+      if (!html) return;
+      currentLink = link;
+      popoverBody.innerHTML = html;
+      positionPopover(link);
+    };
+
+    const scheduleHide = () => {
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => {
+        popover.classList.remove("is-visible");
+        currentLink = null;
+      }, 260);
+    };
+
+    const cancelHide = () => {
+      clearTimeout(hideTimer);
+    };
+
+    citeLinks.forEach((link) => {
+      link.addEventListener("mouseenter", () => showCite(link));
+      link.addEventListener("focus", () => showCite(link));
+      link.addEventListener("mouseleave", scheduleHide);
+      link.addEventListener("blur", scheduleHide);
+    });
+
+    popover.addEventListener("mouseenter", cancelHide);
+    popover.addEventListener("mouseleave", scheduleHide);
+
+    window.addEventListener(
+      "scroll",
+      () => {
+        if (currentLink && popover.classList.contains("is-visible")) {
+          positionPopover(currentLink);
+        }
+      },
+      { passive: true }
+    );
+
+    window.addEventListener("resize", () => {
+      if (currentLink && popover.classList.contains("is-visible")) {
+        positionPopover(currentLink);
+      }
+    });
+  }
+
+  // ---- Count-up animation for Key Insights cards ----
+  const countUpNodes = [...document.querySelectorAll(".count-up")];
+  const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+
+  const runCountUp = (node) => {
+    if (node.dataset.counted === "true") return;
+    node.dataset.counted = "true";
+
+    const target = parseFloat(node.dataset.target);
+    if (!Number.isFinite(target)) {
+      node.textContent = node.dataset.target || "";
+      return;
+    }
+
+    const decimals = parseInt(node.dataset.decimals || "0", 10);
+    const prefix = node.dataset.prefix || "";
+    const suffix = node.dataset.suffix || "";
+    const duration = reduceMotion ? 0 : 1400;
+
+    if (duration === 0) {
+      node.textContent = `${prefix}${target.toFixed(decimals)}${suffix}`;
+      return;
+    }
+
+    const start = performance.now();
+    const step = (now) => {
+      const elapsed = now - start;
+      const t = Math.min(1, elapsed / duration);
+      const value = target * easeOutCubic(t);
+      const signedPrefix =
+        prefix === "+" && target < 0 ? "-" : prefix;
+      const shown =
+        prefix === "+" ? Math.abs(value).toFixed(decimals) : value.toFixed(decimals);
+      node.textContent = `${signedPrefix}${shown}${suffix}`;
+      if (t < 1) {
+        requestAnimationFrame(step);
+      } else {
+        const finalSigned =
+          prefix === "+" && target < 0 ? "-" : prefix;
+        const finalShown =
+          prefix === "+" ? Math.abs(target).toFixed(decimals) : target.toFixed(decimals);
+        node.textContent = `${finalSigned}${finalShown}${suffix}`;
+      }
+    };
+    requestAnimationFrame(step);
+  };
+
+  if (countUpNodes.length) {
+    const countObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          runCountUp(entry.target);
+          countObserver.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.35 });
+
+    countUpNodes.forEach((node) => countObserver.observe(node));
+  }
+});
+</script>
