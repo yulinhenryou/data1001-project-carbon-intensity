@@ -1,6 +1,53 @@
 .DS_Store
-.Rhistory
-.RData
-.Rproj.user/
 __pycache__/
+
+# History files
+.Rhistory
+.Rapp.history
+
+# Session data files
+.RData
+.RDataTmp
+
+# User-specific files
+.Ruserdata
+
+# Example code in package build process
+*-Ex.R
+
+# Output files from R CMD build
+/*.tar.gz
+
+# Output files from R CMD check
+/*.Rcheck/
+
+# RStudio files
+.Rproj.user/
+
+# Produced vignettes
+vignettes/*.html
+vignettes/*.pdf
+
+# OAuth2 token
+.httr-oauth
+
+# knitr and R Markdown default cache directories
+*_cache/
+/cache/
+
+# Temporary files created by R Markdown
+*.utf8.md
+*.knit.md
+
+# R environment variables
+.Renviron
+
+# pkgdown site
+docs/
+
+# Translation temp files
+po/*~
+
+# RStudio Connect folder
+rsconnect/
 
