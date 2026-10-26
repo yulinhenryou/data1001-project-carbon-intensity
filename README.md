@@ -1,8 +1,10 @@
-# DATA1001 Project 2
+# DATA1001 Project
 
-This repository contains an individual student project for the University of Sydney DATA1001 course, Semester 1 2026.
+My individual project for DATA1001 at the University of Sydney, Semester 1 2026, completed as Project 2 in the course outline.
 
-The project corresponds to Project 2 in the course outline. It analyses carbon-intensive growth using the OWID CO2 dataset and presents an evidence-based recommendation for Australia's Indo-Pacific clean energy partnerships.
+Using R and Quarto with the OWID CO2 dataset, I analyse carbon-intensive growth and recommend priorities for Australia's Indo-Pacific clean energy partnerships.
+
+[View the report](https://yulinhenryou.github.io/data1001-project-carbon-intensity/)
 
 ## Contents
 

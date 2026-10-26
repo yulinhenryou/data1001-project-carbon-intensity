@@ -1,6 +1,6 @@
 ---
 title: "Targeting Carbon-Intensive Growth: A Data-Driven Recommendation for Australia's Indo-Pacific Clean Energy Partnerships"
-author: "Anonymous Student"
+author: "Henry Ou"
 format:
   html:
     embed-resources: true
